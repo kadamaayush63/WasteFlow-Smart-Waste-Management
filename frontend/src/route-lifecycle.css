@@ -1,0 +1,13 @@
+.route-actions { display: grid; justify-items: end; gap: 13px; }
+.route-stops { display: grid; gap: 7px; margin-top: 17px; max-width: 600px; }
+.route-stop { display: flex; align-items: center; gap: 10px; border-top: 1px solid #dedcd1; padding-top: 9px; min-width: 280px; }
+.stop-number { width: 24px; height: 24px; display: grid; place-items: center; background: #e7e6db; color: #66736a; font-family: 'Space Mono', monospace; font-size: 9px; }
+.stop-number.done { background: #e0efbc; color: #4a6728; }
+.route-stop b, .route-stop small { display: block; }
+.route-stop b { font-size: 11px; }
+.route-stop small { color: #89928a; font-family: 'Space Mono', monospace; font-size: 8px; margin-top: 2px; }
+.stop-action { margin-left: auto; border: 1px solid #c5c8bb; background: transparent; color: #50654a; font-size: 10px; padding: 6px 9px; }
+@media (max-width: 700px) {
+  .route-actions { justify-items: start; margin-top: 16px; }
+  .route-stop { min-width: 0; }
+}

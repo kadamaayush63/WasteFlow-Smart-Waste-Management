@@ -1,0 +1,573 @@
+# WasteFlow Project Explanation
+
+## 1. Project Overview
+
+WasteFlow is an intelligent waste collection management and route optimization system. It solves the problem of sending collection trucks to the bins that need attention instead of following a fixed route regardless of bin condition.
+
+The application combines:
+
+- A Java Spring Boot backend.
+- A MySQL relational database managed through Flyway migrations.
+- A React and TypeScript frontend built with Vite.
+- Waste-bin fill simulation.
+- Collection-request prioritization.
+- A weighted road graph and Dijkstra shortest-path algorithm.
+- Truck capacity and status management.
+- A 2D Canvas map with animated truck movement.
+
+The current implementation is the functional MVP described in `mvp.md`. `doc.md` describes a larger academic system, so this file clearly separates implemented features from future extensions.
+
+## 2. Problem Being Solved
+
+Traditional waste collection often uses fixed routes. That can cause:
+
+- Trucks to visit bins that are not yet full.
+- Critical bins to wait too long.
+- Unnecessary travel distance and time.
+- Poor use of truck capacity.
+
+WasteFlow improves this process by monitoring bin fill levels, generating collection requests for urgent bins, checking truck availability and capacity, and calculating a route through a connected road network.
+
+## 3. System Architecture
+
+```text
+React + TypeScript + HTML Canvas frontend
+                    |
+                    | JSON REST API
+                    v
+Spring Boot Java backend
+  - domain entities
+  - REST controllers
+  - services and validation
+  - simulation
+  - route optimization
+  - Dijkstra algorithm
+                    |
+                    | JPA / Hibernate + Flyway
+                    v
+MySQL database
+```
+
+The project uses a modular monolith. The backend is one Spring Boot application, but the code is separated into domain packages such as `bin`, `truck`, `collection`, `location`, `road`, `route`, and `simulation`.
+
+## 4. Technology Used
+
+### Backend
+
+- Java 21.
+- Spring Boot.
+- Spring Web for REST APIs.
+- Spring Data JPA for entity persistence and repositories.
+- MySQL driver for the production-like database connection.
+- H2 for the test database.
+- Flyway for version-controlled database migrations.
+- Jakarta Bean Validation for request validation.
+- Spring Boot Actuator for health and application information.
+- Maven for build and test execution.
+
+### Frontend
+
+- React.
+- TypeScript.
+- Vite.
+- `lucide-react` for interface icons.
+- HTML Canvas for the road map, route lines, bin markers, and truck animation.
+- Plain CSS for the dashboard layout and visual styling.
+
+## 5. Main Domain Model
+
+### Location
+
+A location represents a point in the collection area. The demo uses Cartesian coordinates (`x_coordinate` and `y_coordinate`) so the map can be drawn without GPS data.
+
+Examples include:
+
+- Depot.
+- North Gate.
+- Library.
+- Student Center.
+- Sports Complex.
+
+### Road
+
+A road connects two locations and stores:
+
+- Source location.
+- Destination location.
+- Distance.
+- Travel time.
+- Whether the road is bidirectional.
+
+Roads become the edges of the weighted graph used by the route algorithm.
+
+### WasteBin
+
+A waste bin stores:
+
+- Bin code.
+- Location.
+- Capacity in kilograms.
+- Current fill in kilograms.
+- Waste type.
+- Current status.
+- Collection timestamps.
+
+The `WasteBin` class classifies its own status using the fill ratio:
+
+| Fill ratio | Status |
+|---|---|
+| Less than 50% | `NORMAL` |
+| 50% to less than 75% | `MEDIUM` |
+| 75% to less than 95% | `HIGH` |
+| 95% or more | `CRITICAL` |
+
+The class also controls fill increases and collection resets. This keeps state changes inside the domain object instead of spreading them across controllers.
+
+### CollectionRequest
+
+A collection request is created for a bin that requires service. It stores:
+
+- The related bin.
+- A priority score based on the bin fill percentage.
+- Urgency.
+- Status.
+- Creation and resolution timestamps.
+
+Request states include `PENDING`, `ASSIGNED`, `COMPLETED`, and `CANCELLED`.
+
+### Truck
+
+A truck stores:
+
+- Truck code.
+- Capacity.
+- Current load.
+- Current status.
+- Current location.
+
+Truck states include `AVAILABLE`, `ASSIGNED`, `COLLECTING`, and `UNAVAILABLE`. The truck rejects loads larger than its capacity, changes to `ASSIGNED` when a route is created, changes to `COLLECTING` when the route starts, and becomes available again after route completion.
+
+### Route and RouteStop
+
+A route stores:
+
+- Assigned truck.
+- Algorithm name.
+- Total distance.
+- Total estimated time.
+- Route status.
+- Creation and completion timestamps.
+
+A route contains ordered route stops. Each stop links a route to a bin and records its sequence number, completion status, and collected quantity.
+
+## 6. Complete Application Workflow
+
+The implemented workflow is:
+
+1. Flyway creates the database schema and inserts demo data.
+2. The frontend loads bins, requests, locations, roads, trucks, and the latest active route.
+3. The dashboard shows urgent bins, pending requests, available trucks, and total waste.
+4. The user selects collection requests.
+5. The user selects an available truck.
+6. The backend checks that the truck exists, is available, and has enough capacity.
+7. The route service orders the selected requests by priority score.
+8. Dijkstra calculates the shortest path from the truck location to each requested bin in sequence.
+9. The backend stores the route and route stops and assigns the requests to the truck.
+10. The frontend displays the route on the Canvas map.
+11. The user can start the route, complete stops, and complete the route.
+12. Completing a stop records collected waste, completes the related request, and reduces the truck load.
+13. Completing all stops makes the truck available again.
+14. An active route is restored after a browser refresh through `GET /api/routes/active`.
+
+## 7. Data Structures and Algorithms Used
+
+### 7.1 Relational collections and lists
+
+Spring Data repositories return Java `List` collections for bins, requests, roads, and route stops. Streams are used to filter, map, sort, and aggregate operational data.
+
+Examples:
+
+- Filtering bins that are not collected during a simulation tick.
+- Ordering collection requests by priority and creation time.
+- Calculating total selected waste.
+- Mapping entities to API response records.
+
+### 7.2 Weighted graph
+
+The road network is represented by `WeightedGraph` using an adjacency-list structure:
+
+```text
+Map<LocationId, List<Edge>>
+```
+
+Each edge stores:
+
+- Destination location.
+- Distance.
+- Travel time.
+
+Bidirectional database roads are inserted in both directions before route calculation.
+
+### 7.3 Dijkstra shortest path
+
+`DijkstraPathFinder` uses:
+
+- A map of the shortest known distance to each location.
+- A map of travel time.
+- A previous-location map for path reconstruction.
+- A visited set.
+- Java's `PriorityQueue` to process the closest unvisited location first.
+
+The algorithm returns:
+
+- Ordered location IDs.
+- Total distance.
+- Total travel time.
+
+For a graph with $V$ vertices and $E$ edges, this implementation uses an adjacency list and a priority queue, giving the typical complexity of approximately $O((V + E) \log V)$.
+
+### 7.4 Priority-based request handling
+
+The request endpoint returns pending requests ordered by:
+
+1. Highest `priorityScore` first.
+2. Earliest creation time as a tie-breaker.
+
+The route service also sorts selected requests by descending priority before building the route sequence. This provides the MVP's priority-queue behavior through database ordering and Java sorting, although a separate custom `PriorityQueue` class is not currently implemented.
+
+### 7.5 Route construction strategy
+
+The MVP uses a priority-first sequential strategy:
+
+1. Start at the selected truck's current location.
+2. Take the highest-priority selected request.
+3. Run Dijkstra to that bin.
+4. Add its distance and time to the route total.
+5. Continue from that bin's location to the next request.
+
+This is a practical greedy-style route construction approach. It is not a complete vehicle-routing optimization algorithm and does not yet compare multiple candidate route orders.
+
+### 7.6 Complexity and scope
+
+The project currently demonstrates Dijkstra complexity and a practical route workflow. Formal runtime benchmarking, algorithm comparison dashboards, and custom implementations of every structure listed in `doc.md` are future extensions.
+
+## 8. Object-Oriented Programming Concepts
+
+### Encapsulation
+
+Entity fields are private. State changes are controlled through methods such as:
+
+- `WasteBin.increaseFill()`.
+- `WasteBin.collect()`.
+- `Truck.assign()`.
+- `Truck.startCollecting()`.
+- `Truck.reduceLoad()`.
+- `Truck.makeAvailable()`.
+- `Route.start()`.
+- `Route.complete()`.
+
+### Classes and objects
+
+The real-world nouns from the problem become Java classes, including `WasteBin`, `Truck`, `Location`, `Road`, `CollectionRequest`, `Route`, and `RouteStop`.
+
+### Constructors and validation
+
+Constructors initialize valid domain state. REST request records use Jakarta Validation annotations to reject invalid bin data such as non-positive capacity or fill values outside the capacity.
+
+### Composition and relationships
+
+JPA relationships model the system:
+
+- A bin belongs to a location.
+- A road connects two locations.
+- A request belongs to a bin.
+- A route belongs to a truck.
+- A route contains route stops.
+- A route stop refers to a bin.
+
+### Enums
+
+Enums make state values explicit and safer than arbitrary strings:
+
+- `BinStatus`.
+- `WasteType`.
+- `RequestStatus`.
+- `TruckStatus`.
+- `RouteStatus`.
+- `RouteStopStatus`.
+
+### Layered design
+
+The backend separates responsibilities into:
+
+- Entities: persistent domain state.
+- Repositories: database access.
+- Services: business rules and transactions.
+- Controllers: HTTP endpoints.
+- DTOs/responses: API representation.
+- Algorithm classes: graph and path-finding logic independent of Spring.
+
+### Error handling
+
+`GlobalExceptionHandler` converts common failures into JSON responses, including:
+
+- Invalid arguments as HTTP 400.
+- Invalid state transitions as HTTP 409.
+- Validation failures as HTTP 400 with field errors.
+
+## 9. Simulation and Monitoring
+
+The simulation endpoint represents changing sensor readings without requiring physical IoT hardware.
+
+Each simulation tick:
+
+1. Finds bins that have not been collected.
+2. Increases their fill by the configured amount, currently 5 kg per tick by default.
+3. Recalculates each bin status.
+4. Creates a request when a bin becomes `HIGH` or `CRITICAL` and has no pending or assigned request.
+5. Saves the changed bins and newly created requests.
+
+This demonstrates the monitoring and alert-generation part of `doc.md` using deterministic data.
+
+## 10. Database Design
+
+The first migration creates these tables:
+
+- `locations`.
+- `roads`.
+- `waste_bins`.
+- `trucks`.
+- `collection_requests`.
+- `routes`.
+- `route_stops`.
+
+The schema includes:
+
+- Primary keys.
+- Foreign keys.
+- Unique bin and truck codes.
+- Positive-capacity checks.
+- Fill-range checks.
+- Request status and priority indexes.
+
+Flyway migrations currently include:
+
+- `V1__create_mvp_schema.sql`: creates the tables and constraints.
+- `V2__insert_demo_data.sql`: inserts the original campus data, bins, truck, and requests.
+- `V3__insert_additional_demo_data.sql`: adds a second truck and another request.
+- `V4__insert_more_demo_bins_and_requests.sql`: adds five more bins and five linked requests.
+
+Migrations are append-only after being applied. New seed data belongs in a new migration instead of modifying an older migration, which prevents checksum errors in Flyway.
+
+## 11. REST API
+
+### Bin management
+
+- `GET /api/bins`: list all bins.
+- `GET /api/bins/{id}`: get one bin.
+- `POST /api/bins`: create a bin.
+- `PUT /api/bins/{id}`: update a bin.
+- `DELETE /api/bins/{id}`: delete a bin.
+
+### Supporting data
+
+- `GET /api/locations`: list map locations.
+- `GET /api/roads`: list road connections.
+- `GET /api/trucks`: list trucks.
+- `GET /api/collection-requests?status=PENDING`: list requests by status.
+
+### Simulation
+
+- `POST /api/simulation/tick`: increase fill levels and create new requests.
+
+### Routes
+
+- `POST /api/routes/optimize`: create a route for a truck and selected requests.
+- `GET /api/routes/{id}`: retrieve a route.
+- `GET /api/routes/active`: retrieve the newest assigned or collecting route.
+- `POST /api/routes/{id}/start`: start a route.
+- `POST /api/routes/{routeId}/stops/{stopId}/complete`: complete one stop.
+- `POST /api/routes/{id}/complete`: complete the route.
+
+## 12. Frontend and Computer Graphics Concepts
+
+The frontend dashboard contains:
+
+- Sidebar navigation for overview, bin network, and route planner views.
+- Summary cards for urgent bins, open requests, fleet readiness, and total waste.
+- Request selection controls.
+- Truck selection controls.
+- Bin creation form.
+- Collection-area map.
+- Route summary and stop controls.
+
+The `RouteCanvas` component uses the HTML Canvas API to render:
+
+- A background grid.
+- Road line segments.
+- Location markers and labels.
+- Bin markers colored by status.
+- A dashed planned route.
+- A truck marker.
+
+The truck animation uses presentation-side graphics concepts from `doc.md`:
+
+- Translation to move the truck between locations.
+- Rotation based on the direction of travel.
+- Linear interpolation between route endpoints.
+- Scaling the coordinate system to fit the map viewport.
+- Clipping through the map container's overflow behavior.
+- Color coding for depot, urgent bins, roads, and planned routes.
+
+The current MVP does not use OpenGL, 3D objects, textures, DDA, Bresenham, Bezier curves, or a Java Swing GUI. Those are possible academic extensions, not part of the current implementation.
+
+## 13. Refresh and Active Route Recovery
+
+Route state originally existed only in React memory, which meant a browser refresh set the selected route back to `null`. The implemented recovery flow fixes this:
+
+1. The backend searches for the newest route with status `ASSIGNED` or `COLLECTING`.
+2. The frontend requests it during initial data loading.
+3. The route and truck ID are restored into React state.
+4. The Canvas receives the truck's current location and redraws the route.
+5. If no active route exists, the endpoint returns HTTP 204 and the dashboard remains in its normal empty-route state.
+
+This keeps the database as the source of truth rather than relying on browser-only state.
+
+## 14. Testing and Verification
+
+The backend test suite verifies:
+
+- Spring application context startup.
+- Flyway migration loading against the test database.
+- Dijkstra shortest-path behavior.
+
+The Dijkstra test confirms that the algorithm selects the lower-weight path rather than the direct but more expensive edge.
+
+The frontend build runs:
+
+```text
+npm run build
+```
+
+This performs TypeScript compilation and Vite production bundling.
+
+The backend test command is:
+
+```text
+.\mvnw.cmd test
+```
+
+## 15. Running the Project
+
+### Start MySQL
+
+From the backend directory, start the Docker database defined in `docker-compose.yml`:
+
+```text
+docker compose up -d
+```
+
+### Start the backend
+
+```text
+cd backend
+.\mvnw.cmd spring-boot:run
+```
+
+The default backend port is `8080`.
+
+### Start the frontend
+
+```text
+cd frontend
+npm install
+npm run dev
+```
+
+The default Vite development server runs on port `5173`.
+
+### Test and build
+
+```text
+cd backend
+.\mvnw.cmd test
+
+cd ..\frontend
+npm run build
+```
+
+## 16. What Is Implemented Compared With `doc.md`
+
+| Concept from `doc.md` | Current implementation |
+|---|---|
+| Digital bin records | Implemented with JPA, REST CRUD, and MySQL persistence |
+| Bin status classification | Implemented using fill-ratio thresholds |
+| Simulated monitoring | Implemented through the simulation tick endpoint |
+| Collection requests | Implemented with persistence and status transitions |
+| Priority handling | Implemented through priority-score ordering and route sorting |
+| Trucks and capacity | Implemented with availability, assignment, load checks, and status changes |
+| Weighted roads and locations | Implemented with relational tables and a graph adjacency list |
+| Dijkstra | Implemented and unit tested |
+| Greedy-style route sequence | Implemented through priority-first sequential routing |
+| Route persistence | Implemented with routes and route stops |
+| 2D map rendering | Implemented with HTML Canvas |
+| Truck animation | Implemented with translation, rotation, and interpolation |
+| REST backend | Implemented with Spring controllers and JSON responses |
+| Database migrations | Implemented with Flyway versions V1 through V4 |
+| Error handling | Implemented with a global REST exception handler |
+| Custom linked lists | Not currently implemented |
+| Custom hash table | Not currently implemented |
+| Custom queue/deque/circular queue | Not currently implemented as separate academic structures |
+| Binary/Fibonacci search | Not currently implemented as separate algorithms |
+| Report generation | Not currently implemented |
+| Algorithm benchmarking | Not currently implemented |
+| Authentication and roles | Not currently implemented |
+| Java Swing GUI | Not used; React web UI is used instead |
+| OpenGL or 3D graphics | Not currently implemented |
+| COA ALU/register simulator | Not currently implemented |
+| IoT/GPS integration | Not currently implemented; values are simulated/demo data |
+
+## 17. Limitations of the Current MVP
+
+The current route optimizer is designed for a clear, demonstrable MVP. It does not yet solve the full vehicle-routing problem with:
+
+- Multiple trucks in one optimization request.
+- Return-to-depot optimization.
+- Time windows.
+- Fuel or emissions costs.
+- Traffic-aware travel times.
+- Full comparison of greedy, Dijkstra, and brute-force candidates.
+
+The frontend also does not yet include reports, authentication, a 3D map, or custom data-structure demonstration screens.
+
+## 18. Future Extensions
+
+The next academic extensions can be added without replacing the current core workflow:
+
+1. Add custom priority queue, queue, deque, linked-list, stack, and hash-table implementations.
+2. Add search and sorting screens for bins, requests, and route history.
+3. Add route candidate comparison and algorithm performance measurements.
+4. Add multiple-truck vehicle-routing optimization.
+5. Add collection history and report generation.
+6. Add authentication and operator roles.
+7. Add WebSocket or Server-Sent Events for live updates.
+8. Add GPS coordinates and real road data.
+9. Add a COA ALU and instruction simulator.
+10. Add optional 3D rendering, lighting, textures, and advanced animation.
+
+## 19. Final Summary
+
+WasteFlow successfully implements the central problem described in `doc.md`: monitor waste bins, create prioritized collection work, assign an appropriate truck, calculate a route over a weighted graph, display the result graphically, animate the truck, and persist the operational state.
+
+The strongest implemented academic concepts are:
+
+- Object-oriented domain modeling in Java.
+- Relational database design and migration management.
+- Weighted graph representation.
+- Dijkstra shortest-path calculation.
+- Priority-based collection handling.
+- Capacity validation and state transitions.
+- 2D Canvas rendering and animation.
+- REST-based full-stack integration.
+
+The remaining concepts in `doc.md` are documented as future extensions so the project description remains technically accurate and aligned with the actual codebase.
