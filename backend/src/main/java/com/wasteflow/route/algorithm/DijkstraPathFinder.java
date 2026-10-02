@@ -1,6 +1,7 @@
 package com.wasteflow.route.algorithm;
 
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -41,7 +42,7 @@ public class DijkstraPathFinder {
             throw new IllegalArgumentException("No route exists from location " + source + " to " + target);
         }
 
-        java.util.ArrayList<Long> path = new java.util.ArrayList<>();
+        List<Long> path = new ArrayList<>();
         for (Long current = target; current != null; current = previous.get(current)) {
             path.add(0, current);
         }

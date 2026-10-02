@@ -16,7 +16,7 @@ Create bins and roads
         -> update the database
 ```
 
-The MVP is intentionally smaller than the final academic project. It should establish a reliable backend contract and a simple web interface before adding custom data-structure demonstrations, advanced graphics, COA simulation, authentication, reports, or 3D rendering.
+The MVP is intentionally smaller than the final academic project. It establishes a reliable backend contract and a simple web interface. The current project also includes a COA teaching simulator; native assembly execution, authentication, reports, and 3D rendering remain outside the MVP.
 
 ## 2. MVP Technology Choice
 
@@ -721,7 +721,7 @@ Do not block the MVP on these features:
 - IoT sensors.
 - Machine learning prediction.
 - Full custom implementations of every data structure.
-- COA ALU and instruction simulator.
+- Native 64-bit assembly execution for COA calculations (the project currently provides a Java-based instruction simulator).
 - Production deployment and cloud infrastructure.
 
 These should be implemented as later milestones after the core route workflow is stable.

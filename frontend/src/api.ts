@@ -1,4 +1,4 @@
-import type { Bin, CollectionRequest, Location, Road, Route, Truck, WasteType } from './types'
+import type { Bin, CoaSimulation, CollectionRequest, Location, Road, Route, RouteAlgorithm, Truck, WasteType } from './types'
 
 const request = async <T>(path: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(path, {
@@ -14,7 +14,7 @@ const request = async <T>(path: string, options?: RequestInit): Promise<T> => {
 }
 
 export const api = {
-  getBins: () => request<Bin[]>('/api/bins'),
+  getBins: (search?: string) => request<Bin[]>(search ? `/api/bins?search=${encodeURIComponent(search)}` : '/api/bins'),
   createBin: (payload: { binCode: string; locationId: number; capacityKg: number; currentFillKg: number; wasteType: WasteType }) => request<Bin>('/api/bins', { method: 'POST', body: JSON.stringify(payload) }),
   getLocations: () => request<Location[]>('/api/locations'),
   getRoads: () => request<Road[]>('/api/roads'),
@@ -22,8 +22,10 @@ export const api = {
   getRequests: (status = 'PENDING') => request<CollectionRequest[]>(`/api/collection-requests?status=${status}`),
   getActiveRoute: async () => (await request<Route | undefined>('/api/routes/active')) ?? null,
   tick: () => request<{ changedBinCount: number; createdRequestCount: number }>('/api/simulation/tick', { method: 'POST' }),
-  optimize: (truckId: number, requestIds: number[]) => request<Route>('/api/routes/optimize', { method: 'POST', body: JSON.stringify({ truckId, requestIds, algorithm: 'DIJKSTRA' }) }),
+  optimize: (truckId: number, requestIds: number[], algorithm: RouteAlgorithm = 'DIJKSTRA') => request<Route>('/api/routes/optimize', { method: 'POST', body: JSON.stringify({ truckId, requestIds, algorithm }) }),
   startRoute: (routeId: number) => request<Route>(`/api/routes/${routeId}/start`, { method: 'POST' }),
   completeStop: (routeId: number, stopId: number) => request<Route>(`/api/routes/${routeId}/stops/${stopId}/complete`, { method: 'POST' }),
   completeRoute: (routeId: number) => request<Route>(`/api/routes/${routeId}/complete`, { method: 'POST' }),
+  simulateBinStatus: (currentFillKg: number, capacityKg: number) => request<CoaSimulation>('/api/coa/bin-status', { method: 'POST', body: JSON.stringify({ currentFillKg, capacityKg }) }),
+  simulateRouteTotals: (distanceKm: number, travelTimeMinutes: number) => request<CoaSimulation>('/api/coa/route-totals', { method: 'POST', body: JSON.stringify({ legs: [{ distanceKm, travelTimeMinutes }] }) }),
 }

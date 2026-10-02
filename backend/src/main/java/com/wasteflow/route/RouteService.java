@@ -15,9 +15,12 @@ import com.wasteflow.truck.TruckStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class RouteService {
@@ -27,42 +30,57 @@ public class RouteService {
     private final TruckRepository truckRepository;
     private final CollectionRequestRepository requestRepository;
     private final RoadRepository roadRepository;
-    private final DijkstraPathFinder pathFinder = new DijkstraPathFinder();
+    private final Map<String, RouteRequestOrderingStrategy> orderingStrategies;
 
     public RouteService(RouteRepository routeRepository, RouteStopRepository stopRepository, TruckRepository truckRepository,
-                        CollectionRequestRepository requestRepository, RoadRepository roadRepository) {
+                        CollectionRequestRepository requestRepository, RoadRepository roadRepository,
+                        List<RouteRequestOrderingStrategy> orderingStrategies) {
         this.routeRepository = routeRepository;
         this.stopRepository = stopRepository;
         this.truckRepository = truckRepository;
         this.requestRepository = requestRepository;
         this.roadRepository = roadRepository;
+        this.orderingStrategies = orderingStrategies.stream().collect(Collectors.toUnmodifiableMap(
+                strategy -> strategy.algorithm().toUpperCase(Locale.ROOT), Function.identity()));
     }
 
     @Transactional
     public RouteResponse optimize(OptimizeRouteRequest input) {
-        if (!"DIJKSTRA".equalsIgnoreCase(input.algorithm())) {
-            throw new IllegalArgumentException("MVP supports only the DIJKSTRA algorithm");
+        String algorithm = input.algorithm().trim().toUpperCase(Locale.ROOT);
+        RouteRequestOrderingStrategy strategy = orderingStrategies.get(algorithm);
+        if (strategy == null) {
+            throw new IllegalArgumentException("Unsupported route algorithm: " + input.algorithm());
         }
         Truck truck = truckRepository.findById(input.truckId())
                 .orElseThrow(() -> new IllegalArgumentException("Truck not found: " + input.truckId()));
         if (truck.getStatus() != TruckStatus.AVAILABLE) {
             throw new IllegalStateException("Truck is not available: " + truck.getTruckCode());
         }
-        List<CollectionRequest> requests = input.requestIds().stream()
-                .map(id -> requestRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Request not found: " + id)))
-                .sorted(Comparator.comparingDouble(CollectionRequest::getPriorityScore).reversed()
-                        .thenComparing(CollectionRequest::getCreatedAt))
+        SinglyLinkedList<CollectionRequest> requests = new SinglyLinkedList<>();
+        List<CollectionRequest> requestedRequests = input.requestIds().stream()
+                .map(requestId -> requestRepository.findById(requestId)
+                        .orElseThrow(() -> new IllegalArgumentException("Request not found: " + requestId)))
                 .toList();
-        double load = requests.stream().mapToDouble(request -> request.getBin().getCurrentFillKg()).sum();
+        for (CollectionRequest request : requestedRequests) {
+            if (requests.find(item -> item.getId().equals(request.getId())).isPresent()) {
+                throw new IllegalArgumentException("Duplicate collection request: " + request.getId());
+            }
+            requests.add(request);
+        }
+        List<CollectionRequest> selectedRequests = requests.toList();
+        double load = selectedRequests.stream().mapToDouble(request -> request.getBin().getCurrentFillKg()).sum();
         if (load > truck.getCapacityKg()) {
             throw new IllegalStateException("Selected requests exceed truck capacity");
         }
 
         WeightedGraph graph = buildGraph();
+        List<CollectionRequest> orderedRequests = strategy.orderRequests(
+                graph, truck.getLocation().getId(), selectedRequests);
         Long currentLocation = truck.getLocation().getId();
         double totalDistance = 0;
         double totalTime = 0;
-        for (CollectionRequest request : requests) {
+        DijkstraPathFinder pathFinder = new DijkstraPathFinder();
+        for (CollectionRequest request : orderedRequests) {
             var path = pathFinder.findPath(graph, currentLocation, request.getBin().getLocation().getId());
             totalDistance += path.distance();
             totalTime += path.time();
@@ -70,16 +88,21 @@ public class RouteService {
         }
 
         truck.assign(load);
-        Route route = routeRepository.save(new Route(truck, "DIJKSTRA", totalDistance, totalTime));
-        List<RouteStop> stops = new java.util.ArrayList<>();
+        Route route = routeRepository.save(new Route(truck, algorithm, totalDistance, totalTime));
+        SinglyLinkedList<RouteStop> stops = new SinglyLinkedList<>();
         int sequence = 1;
-        for (CollectionRequest request : requests) {
-            request.assign();
+        for (CollectionRequest request : orderedRequests) {
+            requests.update(item -> item.getId().equals(request.getId()), item -> {
+                item.assign();
+                return item;
+            });
             stops.add(new RouteStop(route, request.getBin(), sequence++));
+            requests.remove(item -> item.getId().equals(request.getId()));
         }
-        requestRepository.saveAll(requests);
-        stopRepository.saveAll(stops);
-        return RouteResponse.from(route, stops);
+        List<RouteStop> orderedStops = stops.toList();
+        requestRepository.saveAll(selectedRequests);
+        stopRepository.saveAll(orderedStops);
+        return RouteResponse.from(route, orderedStops);
     }
 
     @Transactional(readOnly = true)

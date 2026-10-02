@@ -13,12 +13,29 @@ public record RouteResponse(
         String status,
         double totalDistance,
         double totalTime,
+        String summary,
         List<StopResponse> stops
 ) {
     public static RouteResponse from(Route route, List<RouteStop> stops) {
+        StringBuilder summary = new StringBuilder()
+                .append("Route #").append(route.getId())
+                .append(" for ").append(route.getTruck().getTruckCode())
+                .append(": ");
+        if (stops.isEmpty()) {
+            summary.append("no collection stops");
+        } else {
+            for (int index = 0; index < stops.size(); index++) {
+                if (index > 0) summary.append(" -> ");
+                summary.append(stops.get(index).getBin().getBinCode());
+            }
+        }
+        summary.append(" | ").append(route.getTotalDistance()).append(" km, ")
+                .append(route.getTotalTime()).append(" min");
+
         return new RouteResponse(
                 route.getId(), route.getTruck().getId(), route.getAlgorithm(), route.getStatus().name(),
-                route.getTotalDistance(), route.getTotalTime(), stops.stream().map(StopResponse::from).toList()
+                route.getTotalDistance(), route.getTotalTime(), summary.toString(),
+                stops.stream().map(StopResponse::from).toList()
         );
     }
 

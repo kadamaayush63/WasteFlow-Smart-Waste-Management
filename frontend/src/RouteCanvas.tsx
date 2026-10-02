@@ -1,5 +1,6 @@
 import { Pause, Play, RotateCcw } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { drawClippedRasterLine, drawMidpointCircleOutline, drawMidpointFilledCircle } from './graphicsAlgorithms'
 import type { Bin, Location, Road, Route } from './types'
 
 interface RouteCanvasProps {
@@ -64,109 +65,121 @@ export function RouteCanvas({ locations, roads, bins, route, truckLocationId }: 
   const replay = () => { pausedAt.current = 0; setProgress(0); setIsPlaying(true) }
 
   useEffect(() => {
+    const render = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const context = canvas.getContext('2d')
+      if (!context) return
+      const viewWidth = canvas.clientWidth
+      const viewHeight = canvas.clientHeight
+      if (viewWidth <= 0 || viewHeight <= 0) return
+
+      const pixelRatio = window.devicePixelRatio || 1
+      canvas.width = Math.round(viewWidth * pixelRatio)
+      canvas.height = Math.round(viewHeight * pixelRatio)
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+      context.fillStyle = palette.paper
+      context.fillRect(0, 0, viewWidth, viewHeight)
+
+      const minX = Math.min(...locations.map((location) => location.xCoordinate), 0)
+      const maxX = Math.max(...locations.map((location) => location.xCoordinate), 100)
+      const minY = Math.min(...locations.map((location) => location.yCoordinate), 0)
+      const maxY = Math.max(...locations.map((location) => location.yCoordinate), 100)
+      const scale = Math.min((viewWidth - 64) / (maxX - minX), (viewHeight - 64) / (maxY - minY))
+      const point = (locationId: number) => {
+        const location = locations.find((item) => item.id === locationId)
+        if (!location) return { x: viewWidth / 2, y: viewHeight / 2 }
+        return {
+          x: 32 + (location.xCoordinate - minX) * scale,
+          y: 32 + (location.yCoordinate - minY) * scale,
+        }
+      }
+
+      for (let x = 32; x < viewWidth; x += 32) {
+        drawClippedRasterLine(context, { x, y: 0 }, { x, y: viewHeight }, viewWidth, viewHeight, palette.grid)
+      }
+      for (let y = 32; y < viewHeight; y += 32) {
+        drawClippedRasterLine(context, { x: 0, y }, { x: viewWidth, y }, viewWidth, viewHeight, palette.grid)
+      }
+
+      roads.forEach((road) => {
+        drawClippedRasterLine(
+          context,
+          point(road.sourceLocationId),
+          point(road.destinationLocationId),
+          viewWidth,
+          viewHeight,
+          '#bbbeb2',
+          3,
+        )
+      })
+
+      const stopLocations = routeLocations.map((location) => location.id)
+      for (let index = 0; index < stopLocations.length - 1; index += 1) {
+        drawClippedRasterLine(
+          context,
+          point(stopLocations[index]),
+          point(stopLocations[index + 1]),
+          viewWidth,
+          viewHeight,
+          palette.ink,
+          5,
+          [9, 7],
+        )
+      }
+
+      if (routeLocations.length > 1) {
+        const segmentProgress = progress * (routeLocations.length - 1)
+        const segmentIndex = Math.max(0, Math.min(routeLocations.length - 2, Math.floor(segmentProgress)))
+        const localProgress = Math.min(1, segmentProgress - segmentIndex)
+        const startLocation = routeLocations[segmentIndex]
+        const endLocation = routeLocations[segmentIndex + 1]
+        if (!startLocation || !endLocation) return
+        const start = point(startLocation.id)
+        const end = point(endLocation.id)
+        const truckX = start.x + (end.x - start.x) * localProgress
+        const truckY = start.y + (end.y - start.y) * localProgress
+        const heading = Math.atan2(end.y - start.y, end.x - start.x)
+        context.save()
+        context.translate(truckX, truckY)
+        context.rotate(heading)
+        context.fillStyle = palette.coral
+        context.strokeStyle = palette.paper
+        context.lineWidth = 3
+        context.beginPath()
+        context.roundRect(-14, -9, 24, 18, 4)
+        context.fill(); context.stroke()
+        context.fillStyle = palette.ink
+        context.beginPath(); context.roundRect(5, -7, 9, 14, 2); context.fill()
+        context.fillStyle = palette.ink
+        context.beginPath(); context.arc(-7, 10, 3, 0, Math.PI * 2); context.fill()
+        context.beginPath(); context.arc(8, 10, 3, 0, Math.PI * 2); context.fill()
+        context.restore()
+      }
+
+      locations.forEach((location) => {
+        const current = point(location.id)
+        const isDepot = location.name.toLowerCase().includes('depot')
+        drawMidpointFilledCircle(context, current, isDepot ? 8 : 5, isDepot ? palette.lime : palette.ink)
+        context.fillStyle = palette.ink
+        context.font = '11px Space Mono, monospace'
+        context.fillText(location.name, current.x + 9, current.y - 9)
+      })
+
+      bins.forEach((bin) => {
+        const current = point(bin.locationId)
+        const color = bin.status === 'CRITICAL' ? palette.coral : bin.status === 'HIGH' ? '#f3bd57' : palette.blue
+        drawMidpointFilledCircle(context, current, 9, color)
+        drawMidpointCircleOutline(context, current, 10, palette.paper)
+      })
+    }
+
+    render()
     const canvas = canvasRef.current
     if (!canvas) return
-    const context = canvas.getContext('2d')
-    if (!context) return
-    const width = canvas.clientWidth * window.devicePixelRatio
-    const height = canvas.clientHeight * window.devicePixelRatio
-    canvas.width = width
-    canvas.height = height
-    context.scale(window.devicePixelRatio, window.devicePixelRatio)
-    const viewWidth = canvas.clientWidth
-    const viewHeight = canvas.clientHeight
-    context.fillStyle = palette.paper
-    context.fillRect(0, 0, viewWidth, viewHeight)
-
-    const minX = Math.min(...locations.map((location) => location.xCoordinate), 0)
-    const maxX = Math.max(...locations.map((location) => location.xCoordinate), 100)
-    const minY = Math.min(...locations.map((location) => location.yCoordinate), 0)
-    const maxY = Math.max(...locations.map((location) => location.yCoordinate), 100)
-    const scale = Math.min((viewWidth - 64) / (maxX - minX), (viewHeight - 64) / (maxY - minY))
-    const point = (locationId: number) => {
-      const location = locations.find((item) => item.id === locationId)
-      if (!location) return { x: viewWidth / 2, y: viewHeight / 2 }
-      return {
-        x: 32 + (location.xCoordinate - minX) * scale,
-        y: 32 + (location.yCoordinate - minY) * scale,
-      }
-    }
-
-    context.strokeStyle = palette.grid
-    context.lineWidth = 1
-    for (let x = 32; x < viewWidth; x += 32) {
-      context.beginPath(); context.moveTo(x, 0); context.lineTo(x, viewHeight); context.stroke()
-    }
-    for (let y = 32; y < viewHeight; y += 32) {
-      context.beginPath(); context.moveTo(0, y); context.lineTo(viewWidth, y); context.stroke()
-    }
-
-    roads.forEach((road) => {
-      const start = point(road.sourceLocationId)
-      const end = point(road.destinationLocationId)
-      context.strokeStyle = '#bbbeb2'
-      context.lineWidth = 3
-      context.beginPath(); context.moveTo(start.x, start.y); context.lineTo(end.x, end.y); context.stroke()
-    })
-
-    const stopLocations = routeLocations.map((location) => location.id)
-    for (let index = 0; index < stopLocations.length - 1; index += 1) {
-      const start = point(stopLocations[index])
-      const end = point(stopLocations[index + 1])
-      context.strokeStyle = palette.ink
-      context.lineWidth = 5
-      context.setLineDash([9, 7])
-      context.beginPath(); context.moveTo(start.x, start.y); context.lineTo(end.x, end.y); context.stroke()
-      context.setLineDash([])
-    }
-
-    if (routeLocations.length > 1) {
-      const segmentProgress = progress * (routeLocations.length - 1)
-      const segmentIndex = Math.max(0, Math.min(routeLocations.length - 2, Math.floor(segmentProgress)))
-      const localProgress = Math.min(1, segmentProgress - segmentIndex)
-      const startLocation = routeLocations[segmentIndex]
-      const endLocation = routeLocations[segmentIndex + 1]
-      if (!startLocation || !endLocation) return
-      const start = point(startLocation.id)
-      const end = point(endLocation.id)
-      const truckX = start.x + (end.x - start.x) * localProgress
-      const truckY = start.y + (end.y - start.y) * localProgress
-      const heading = Math.atan2(end.y - start.y, end.x - start.x)
-      context.save()
-      context.translate(truckX, truckY)
-      context.rotate(heading)
-      context.fillStyle = palette.coral
-      context.strokeStyle = palette.paper
-      context.lineWidth = 3
-      context.beginPath()
-      context.roundRect(-14, -9, 24, 18, 4)
-      context.fill(); context.stroke()
-      context.fillStyle = palette.ink
-      context.beginPath(); context.roundRect(5, -7, 9, 14, 2); context.fill()
-      context.fillStyle = palette.ink
-      context.beginPath(); context.arc(-7, 10, 3, 0, Math.PI * 2); context.fill()
-      context.beginPath(); context.arc(8, 10, 3, 0, Math.PI * 2); context.fill()
-      context.restore()
-    }
-
-    locations.forEach((location) => {
-      const current = point(location.id)
-      const isDepot = location.name.toLowerCase().includes('depot')
-      context.fillStyle = isDepot ? palette.lime : palette.ink
-      context.beginPath(); context.arc(current.x, current.y, isDepot ? 8 : 5, 0, Math.PI * 2); context.fill()
-      context.fillStyle = palette.ink
-      context.font = '11px Space Mono, monospace'
-      context.fillText(location.name, current.x + 9, current.y - 9)
-    })
-
-    bins.forEach((bin) => {
-      const current = point(bin.locationId)
-      const color = bin.status === 'CRITICAL' ? palette.coral : bin.status === 'HIGH' ? '#f3bd57' : palette.blue
-      context.fillStyle = color
-      context.strokeStyle = palette.paper
-      context.lineWidth = 2
-      context.beginPath(); context.arc(current.x, current.y, 9, 0, Math.PI * 2); context.fill(); context.stroke()
-    })
+    const resizeObserver = new ResizeObserver(render)
+    resizeObserver.observe(canvas)
+    return () => resizeObserver.disconnect()
   }, [bins, locations, roads, progress, route, routeLocations])
 
   const currentStop = stopCount === 0 ? 0 : Math.min(stopCount, Math.floor(progress * stopCount) + 1)

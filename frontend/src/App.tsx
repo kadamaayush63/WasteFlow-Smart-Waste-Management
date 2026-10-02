@@ -1,16 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, AlertTriangle, ArrowUpRight, Box, Check, ChevronRight, CircleHelp, Factory, Gauge, Map, PackagePlus, RefreshCw, Route as RouteIcon, Truck as TruckIcon, Wifi } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowUpRight, Box, Check, ChevronRight, CircleHelp, Cpu, Factory, Gauge, Map, PackagePlus, RefreshCw, Route as RouteIcon, Truck as TruckIcon, Wifi } from 'lucide-react'
 import { api } from './api'
+import { CoaLab } from './CoaLab'
 import { RouteCanvas } from './RouteCanvas'
-import type { Bin, CollectionRequest, Location, Road, Route, Truck, WasteType } from './types'
+import type { Bin, CollectionRequest, Location, Road, Route, RouteAlgorithm, Truck, WasteType } from './types'
 import './styles.css'
 import './route-lifecycle.css'
 import './animation.css'
 
 const statusLabel: Record<string, string> = { NORMAL: 'Normal', MEDIUM: 'Medium', HIGH: 'High', CRITICAL: 'Critical', COLLECTED: 'Collected' }
 const formatNumber = (value: number) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 }).format(value)
+const formatDate = (date: Date) => {
+  const parts = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).formatToParts(date)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? ''
+  return `${part('weekday')} · ${part('day')} ${part('month')} ${part('year')}`.toUpperCase()
+}
 
 function App() {
+  const [today, setToday] = useState(() => new Date())
   const [bins, setBins] = useState<Bin[]>([])
   const [requests, setRequests] = useState<CollectionRequest[]>([])
   const [locations, setLocations] = useState<Location[]>([])
@@ -18,8 +25,9 @@ function App() {
   const [trucks, setTrucks] = useState<Truck[]>([])
   const [selectedRequests, setSelectedRequests] = useState<number[]>([])
   const [selectedTruck, setSelectedTruck] = useState<number | ''>('')
+  const [routeAlgorithm, setRouteAlgorithm] = useState<RouteAlgorithm>('DIJKSTRA')
   const [route, setRoute] = useState<Route | null>(null)
-  const [activeView, setActiveView] = useState<'overview' | 'bins' | 'routes'>('overview')
+  const [activeView, setActiveView] = useState<'overview' | 'bins' | 'routes' | 'coa'>('overview')
   const [isLoading, setIsLoading] = useState(true)
   const [isTicking, setIsTicking] = useState(false)
   const [isOptimizing, setIsOptimizing] = useState(false)
@@ -42,6 +50,10 @@ function App() {
   }
 
   useEffect(() => { void loadData() }, [])
+  useEffect(() => {
+    const interval = window.setInterval(() => setToday(new Date()), 60_000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   const stats = useMemo(() => ({
     critical: bins.filter((bin) => bin.status === 'CRITICAL').length,
@@ -67,7 +79,7 @@ function App() {
     setIsOptimizing(true); setError(''); setMessage('')
     const truck = trucks.find((item) => item.id === selectedTruck)
     if (!truck || truck.status !== 'AVAILABLE') { setError('Choose an available truck before building a route'); return }
-    try { const nextRoute = await api.optimize(Number(selectedTruck), selectedRequests); setRoute(nextRoute); setSelectedRequests([]); setMessage(`Route ${nextRoute.id} planned with ${nextRoute.stops.length} stops`); setActiveView('routes'); await loadData() }
+    try { const nextRoute = await api.optimize(Number(selectedTruck), selectedRequests, routeAlgorithm); setRoute(nextRoute); setSelectedRequests([]); setMessage(`Route ${nextRoute.id} planned with ${nextRoute.stops.length} stops`); setActiveView('routes'); await loadData() }
     catch (routeError) { setError(routeError instanceof Error ? routeError.message : 'Route optimization failed') }
     finally { setIsOptimizing(false) }
   }
@@ -103,24 +115,27 @@ function App() {
           <button className={activeView === 'overview' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('overview')}><Gauge size={17} /> Overview <ChevronRight size={15} /></button>
           <button className={activeView === 'bins' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('bins')}><Box size={17} /> Bin network <span className="nav-count">{bins.length}</span></button>
           <button className={activeView === 'routes' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('routes')}><RouteIcon size={17} /> Route planner <span className="nav-count">{requests.length}</span></button>
+          <button className={activeView === 'coa' ? 'nav-item active' : 'nav-item'} onClick={() => setActiveView('coa')}><Cpu size={17} /> COA lab <ChevronRight size={15} /></button>
         </nav>
         <div className="sidebar-bottom"><div className="side-note"><CircleHelp size={15} /><span>Demo dataset<br /><b>Campus North</b></span></div><button className="profile"><span className="avatar">OP</span><span><b>Operator</b><small>Field control</small></span><ArrowUpRight size={14} /></button></div>
       </aside>
 
       <main className="main-content">
-        <header className="topbar"><div className="crumb"><span>WasteFlow</span><ChevronRight size={14} /><b>{activeView === 'overview' ? 'Overview' : activeView === 'bins' ? 'Bin network' : 'Route planner'}</b></div><div className="top-actions"><span className="last-sync"><Wifi size={14} /> API connected</span><button className="icon-button" title="Refresh data" onClick={() => void loadData()}><RefreshCw size={17} /></button></div></header>
-        <section className="page-intro"><div><p className="eyebrow">THURSDAY · 11 SEPTEMBER 2026</p><h1>{activeView === 'overview' ? <>Good evening, <em>operator.</em></> : activeView === 'bins' ? <>Bin network <em>control.</em></> : <>Plan the next <em>collection.</em></>}</h1><p className="intro-copy">Monitor fill levels, surface urgent work, and send the right truck down the shortest path.</p></div><button className="primary-button" onClick={runTick} disabled={isTicking}><Activity size={17} /> {isTicking ? 'Simulating...' : 'Run simulation tick'}</button></section>
+        <header className="topbar"><div className="crumb"><span>WasteFlow</span><ChevronRight size={14} /><b>{activeView === 'overview' ? 'Overview' : activeView === 'bins' ? 'Bin network' : activeView === 'routes' ? 'Route planner' : 'COA lab'}</b></div><div className="top-actions"><span className="last-sync"><Wifi size={14} /> API connected</span><button className="icon-button" title="Refresh data" onClick={() => void loadData()}><RefreshCw size={17} /></button></div></header>
+        <section className="page-intro"><div><p className="eyebrow">{activeView === 'coa' ? 'PROCESSOR MODEL · TEACHING SIMULATOR' : formatDate(today)}</p><h1>{activeView === 'overview' ? <>Good evening, <em>operator.</em></> : activeView === 'bins' ? <>Bin network <em>control.</em></> : activeView === 'routes' ? <>Plan the next <em>collection.</em></> : <>Explore the <em>CPU.</em></>}</h1><p className="intro-copy">{activeView === 'coa' ? 'Trace application calculations through simulated 64-bit registers and ALU instructions.' : 'Monitor fill levels, surface urgent work, and send the right truck down the shortest path.'}</p></div>{activeView !== 'coa' && <button className="primary-button" onClick={runTick} disabled={isTicking}><Activity size={17} /> {isTicking ? 'Simulating...' : 'Run simulation tick'}</button>}</section>
         {error && <div className="alert error"><AlertTriangle size={17} /> {error}<button onClick={() => setError('')}>Dismiss</button></div>}
         {message && <div className="alert success"><Check size={17} /> {message}</div>}
 
-        <section className="stat-grid">
+        {activeView !== 'coa' && <section className="stat-grid">
           <article className="stat-card accent"><div className="stat-heading"><span>Urgent bins</span><AlertTriangle size={17} /></div><strong>{stats.attention.toString().padStart(2, '0')}</strong><p><b>{stats.critical}</b> critical · needs attention</p></article>
           <article className="stat-card"><div className="stat-heading"><span>Open requests</span><PackagePlus size={17} /></div><strong>{requests.length.toString().padStart(2, '0')}</strong><p>Priority queue · <b>live</b></p></article>
           <article className="stat-card"><div className="stat-heading"><span>Fleet ready</span><TruckIcon size={17} /></div><strong>{stats.availableTrucks.toString().padStart(2, '0')}</strong><p>of {trucks.length.toString().padStart(2, '0')} trucks available</p></article>
           <article className="stat-card"><div className="stat-heading"><span>Waste on route</span><Factory size={17} /></div><strong>{formatNumber(stats.totalWaste)}<small> kg</small></strong><p>across monitored bins</p></article>
-        </section>
+        </section>}
 
-        {activeView === 'bins' ? <BinsPanel bins={bins} locations={locations} onCreated={loadData} /> : <>
+        {(activeView === 'overview' || activeView === 'routes') && <div className="route-strategy-control"><label htmlFor="route-algorithm">Stop order</label><select id="route-algorithm" value={routeAlgorithm} onChange={(event) => setRouteAlgorithm(event.target.value as RouteAlgorithm)}><option value="DIJKSTRA">Priority first</option><option value="NEAREST_STOP">Nearest stop</option></select></div>}
+
+        {activeView === 'coa' ? <CoaLab bins={bins} route={route} /> : activeView === 'bins' ? <BinsPanel bins={bins} locations={locations} onCreated={loadData} /> : <>
           <section className="workspace-grid">
             <div className="panel request-panel"><div className="panel-header"><div><p className="eyebrow">PRIORITY QUEUE</p><h2>Requests needing a truck</h2></div><span className="queue-badge">{requests.length} pending</span></div><p className="panel-subtitle">Select urgent bins to build a collection route. Highest fill level is served first.</p><div className="request-list">{requests.length === 0 ? <div className="empty-state"><Check size={20} /><p>Queue clear.<br />Run a simulation tick to generate work.</p></div> : requests.map((request, index) => { const bin = bins.find((item) => item.id === request.binId); const selected = selectedRequests.includes(request.id); return <button key={request.id} className={`request-row ${selected ? 'selected' : ''}`} onClick={() => toggleRequest(request.id)}><span className="rank">0{index + 1}</span><span className={`priority-dot ${request.urgency.toLowerCase()}`} /><span className="request-main"><b>{request.binCode}</b><small>{bin?.locationName ?? 'Unknown location'} · {formatNumber(bin?.currentFillKg ?? 0)} / {formatNumber(bin?.capacityKg ?? 0)} kg</small></span><span className="request-score"><b>{formatNumber(request.priorityScore)}</b><small>score</small></span><span className={`status-pill ${request.urgency.toLowerCase()}`}>{statusLabel[request.urgency] ?? request.urgency}</span><span className={`check-box ${selected ? 'checked' : ''}`}>{selected && <Check size={13} />}</span></button> })}</div></div>
             <div className="panel fleet-panel"><div className="panel-header"><div><p className="eyebrow">FLEET STATUS</p><h2>Available trucks</h2></div><TruckIcon size={19} /></div><div className="truck-list">{trucks.map((truck) => <button key={truck.id} disabled={truck.status !== 'AVAILABLE'} className={`truck-row ${selectedTruck === truck.id ? 'selected' : ''}`} onClick={() => setSelectedTruck(truck.id)}><span className="truck-icon"><TruckIcon size={18} /></span><span><b>{truck.truckCode}</b><small>{formatNumber(truck.capacityKg)} kg capacity · {truck.status.toLowerCase()}</small></span><span className={`fleet-dot ${truck.status.toLowerCase()}`} /></button>)}</div><div className="capacity-meter"><div><span>Selected load</span><b>{formatNumber(selectedWeight)} / {selectedTruck ? formatNumber(trucks.find((truck) => truck.id === selectedTruck)?.capacityKg ?? 0) : '—'} kg</b></div><div className="meter-track"><span style={{ width: `${Math.min(100, selectedWeight / (Number(selectedTruck ? trucks.find((truck) => truck.id === selectedTruck)?.capacityKg : 1) || 1) * 100)}%` }} /></div></div><button className="route-button" onClick={optimizeRoute} disabled={isOptimizing || selectedRequests.length === 0 || selectedTruck === '' || trucks.find((truck) => truck.id === selectedTruck)?.status !== 'AVAILABLE'}><Map size={17} /> {isOptimizing ? 'Calculating shortest path...' : 'Build optimized route'} <ArrowUpRight size={16} /></button></div>
@@ -129,6 +144,7 @@ function App() {
         </>}
 
         {activeView === 'routes' && route && <section className="panel route-summary"><div><p className="eyebrow">LATEST PLAN</p><h2>Route #{route.id} ready for dispatch</h2><p>{route.stops.length} stops · {formatNumber(route.totalDistance)} km · {formatNumber(route.totalTime)} minutes</p><div className="route-stops">{route.stops.map((stop) => <div className="route-stop" key={stop.id}><span className={stop.status === 'COMPLETED' ? 'stop-number done' : 'stop-number'}>{stop.status === 'COMPLETED' ? <Check size={12} /> : String(stop.sequenceNumber).padStart(2, '0')}</span><span><b>Stop {String(stop.sequenceNumber).padStart(2, '0')}</b><small>{bins.find((bin) => bin.id === stop.binId)?.binCode ?? `Bin #${stop.binId}`}</small></span>{stop.status === 'PENDING' && route.status === 'COLLECTING' && <button className="stop-action" onClick={() => void completeStop(stop.id)}>Complete</button>}</div>)}</div></div><div className="route-actions"><span className="route-state"><span className="pulse" /> {route.status}</span>{route.status === 'ASSIGNED' && <button className="secondary-button" onClick={() => void startRoute()}>Start route</button>}{route.status === 'COLLECTING' && <button className="primary-button compact" disabled={route.stops.some((stop) => stop.status === 'PENDING')} onClick={() => void completeRoute()}>Complete route</button>}</div></section>}
+        {activeView === 'routes' && route && <p className="route-report">{route.summary}</p>}
       </main>
     </div>
   )

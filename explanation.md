@@ -14,6 +14,7 @@ The application combines:
 - A weighted road graph and Dijkstra shortest-path algorithm.
 - Truck capacity and status management.
 - A 2D Canvas map with animated truck movement.
+- A COA teaching simulator that traces 64-bit register and ALU operations for bin and route calculations.
 
 The current implementation is the functional MVP described in `mvp.md`. `doc.md` describes a larger academic system, so this file clearly separates implemented features from future extensions.
 
@@ -179,6 +180,14 @@ The implemented workflow is:
 13. Completing all stops makes the truck available again.
 14. An active route is restored after a browser refresh through `GET /api/routes/active`.
 
+## Programming Lab Concepts Implemented
+
+- **Arrays and CRUD:** The bin API supports create, read/display, update, and delete operations. Bin responses are materialized into a Java array and traversed for display and search; database storage keeps changes persistent.
+- **Searching:** `GET /api/bins?search=...` uses linear search over bin code and location name.
+- **Singly linked list:** A project-owned list provides insert, find, update, delete, size, and traversal operations. Route planning stores requests in the existing priority order, then uses the linked list to build its ordered stop list.
+
+Bin display keeps the application's original urgency order. The existing Dijkstra priority queue remains part of route calculation; it is required by the route algorithm, not added as an unrelated PL task.
+
 ## 7. Data Structures and Algorithms Used
 
 ### 7.1 Relational collections and lists
@@ -215,6 +224,7 @@ Bidirectional database roads are inserted in both directions before route calcul
 - A map of the shortest known distance to each location.
 - A map of travel time.
 - A previous-location map for path reconstruction.
+- A previous-location map for rebuilding the route in forward order.
 - A visited set.
 - Java's `PriorityQueue` to process the closest unvisited location first.
 
@@ -235,21 +245,18 @@ The request endpoint returns pending requests ordered by:
 
 The route service also sorts selected requests by descending priority before building the route sequence. This provides the MVP's priority-queue behavior through database ordering and Java sorting, although a separate custom `PriorityQueue` class is not currently implemented.
 
-### 7.5 Route construction strategy
+### 7.5 Route construction strategies
 
-The MVP uses a priority-first sequential strategy:
+The route planner supports two selectable request-ordering strategies. Both use Dijkstra to calculate the shortest road path between each consecutive stop:
 
-1. Start at the selected truck's current location.
-2. Take the highest-priority selected request.
-3. Run Dijkstra to that bin.
-4. Add its distance and time to the route total.
-5. Continue from that bin's location to the next request.
+- **Priority first (`DIJKSTRA`):** sort selected requests by priority score, then creation time; visit them in that order.
+- **Nearest stop (`NEAREST_STOP`):** repeatedly choose the remaining request with the shortest Dijkstra distance from the truck's current location.
 
-This is a practical greedy-style route construction approach. It is not a complete vehicle-routing optimization algorithm and does not yet compare multiple candidate route orders.
+The nearest-stop strategy is greedy and does not guarantee a globally optimal vehicle route. The strategies demonstrate different ordering tradeoffs; route totals are calculated using the chosen stop order.
 
 ### 7.6 Complexity and scope
 
-The project currently demonstrates Dijkstra complexity and a practical route workflow. Formal runtime benchmarking, algorithm comparison dashboards, and custom implementations of every structure listed in `doc.md` are future extensions.
+The project currently demonstrates Dijkstra complexity and compares priority-first and nearest-stop ordering in the route workflow. Formal runtime benchmarking and custom implementations of every structure listed in `doc.md` are future extensions.
 
 ## 8. Object-Oriented Programming Concepts
 
@@ -273,6 +280,14 @@ The real-world nouns from the problem become Java classes, including `WasteBin`,
 ### Constructors and validation
 
 Constructors initialize valid domain state. REST request records use Jakarta Validation annotations to reject invalid bin data such as non-positive capacity or fill values outside the capacity.
+
+### Strategy interface, inheritance, and polymorphism
+
+`RouteRequestOrderingStrategy` defines the route-ordering contract. `AbstractRouteRequestOrderingStrategy` provides shared Dijkstra support and priority ordering. `PriorityFirstRouteStrategy` and `NearestStopRouteStrategy` extend the abstract class and initialize it using `super(...)`. `RouteService` selects an implementation from a map by the requested algorithm name and invokes the interface method polymorphically. This keeps route-order selection out of a growing algorithm-specific conditional.
+
+### StringBuilder route summary
+
+`RouteResponse.from()` uses `StringBuilder` to create a readable summary containing the route number, truck, ordered bin stops, distance, and time. The response is also displayed in the route planner. `StringBuffer` is not used because summary generation is local to one request and does not need synchronized string mutation.
 
 ### Composition and relationships
 
@@ -416,10 +431,28 @@ The truck animation uses presentation-side graphics concepts from `doc.md`:
 - Rotation based on the direction of travel.
 - Linear interpolation between route endpoints.
 - Scaling the coordinate system to fit the map viewport.
-- Clipping through the map container's overflow behavior.
+- Cohen–Sutherland line clipping to keep grid, road, and route segments within the Canvas viewport.
+- Redrawing through `ResizeObserver` when the map viewport changes size.
 - Color coding for depot, urgent bins, roads, and planned routes.
 
-The current MVP does not use OpenGL, 3D objects, textures, DDA, Bresenham, Bezier curves, or a Java Swing GUI. Those are possible academic extensions, not part of the current implementation.
+The Canvas renderer uses custom computer-graphics algorithms for its map primitives:
+
+- Bresenham's integer line algorithm draws grid lines, roads, and the dashed planned route.
+- The midpoint circle algorithm draws filled location/bin markers and bin marker outlines.
+- Cohen–Sutherland clips line segments before rasterization.
+
+The project uses browser Canvas rather than native OpenGL/GLFW. It does not currently include 3D objects, textures, Bezier curves, or a Java Swing GUI.
+
+### COA Lab: processor and instruction simulation
+
+The dashboard's **COA lab** view connects processor concepts to current WasteFlow data. Its backend endpoints are:
+
+- `POST /api/coa/bin-status`: simulates fill-percentage arithmetic and threshold branches using the selected bin's fill and capacity.
+- `POST /api/coa/route-totals`: simulates 64-bit register accumulation for route distance and travel time using the loaded route totals.
+
+The teaching CPU models 64-bit `RAX`, `RBX`, `RCX`, and `RDX` registers, ALU arithmetic/comparison, zero/sign/carry/overflow flags, conditional branches, and a fetch/decode/execute trace. Its supported instruction subset includes `MOV`, `ADD`, `IMUL`, `CQO`, `IDIV`, `CMP`, `JGE`, `JL`, `JMP`, and `HLT`. Measurements are represented in milli-units so the simulated arithmetic uses integer registers.
+
+This is a Java software simulator interpreting an x86-64-style instruction subset. It does not assemble or execute native x86-64 machine code; native assembly integration requires a compatible 64-bit assembler and toolchain.
 
 ## 13. Refresh and Active Route Recovery
 
@@ -508,23 +541,27 @@ npm run build
 | Trucks and capacity | Implemented with availability, assignment, load checks, and status changes |
 | Weighted roads and locations | Implemented with relational tables and a graph adjacency list |
 | Dijkstra | Implemented and unit tested |
-| Greedy-style route sequence | Implemented through priority-first sequential routing |
+| Route-order strategies | Priority-first and nearest-stop options implemented; both use Dijkstra for shortest-path legs |
+| OOP strategy concepts | Interface, abstract class, inheritance, `super(...)`, and polymorphic dispatch implemented for route ordering |
+| StringBuilder | Implemented for the route summary shown in the route view; StringBuffer is unnecessary for this request-local operation |
 | Route persistence | Implemented with routes and route stops |
 | 2D map rendering | Implemented with HTML Canvas |
 | Truck animation | Implemented with translation, rotation, and interpolation |
 | REST backend | Implemented with Spring controllers and JSON responses |
 | Database migrations | Implemented with Flyway versions V1 through V4 |
 | Error handling | Implemented with a global REST exception handler |
-| Custom linked lists | Not currently implemented |
-| Custom hash table | Not currently implemented |
-| Custom queue/deque/circular queue | Not currently implemented as separate academic structures |
-| Binary/Fibonacci search | Not currently implemented as separate algorithms |
+| Task 1 arrays and search | Urgency-ordered bin results are materialized into an array; linear search supports bin-code and location queries |
+| Task 2 linked list | Project-owned singly linked list supports insert, find, update, delete, size, and traversal; used in priority-ordered route planning |
+| Task 3 stack/queue | No separate PL stack/queue feature was added; Dijkstra's priority queue remains essential to shortest-path calculation |
+| Task 4 sorting/hashing | No separate sorting or hash-table feature was added |
+| COA processor model | Implemented as an educational simulator with 64-bit general-purpose registers, ALU operations, flags, conditional branches, and an instruction trace |
+| COA application calculations | Bin fill classification and route distance/time accumulation are traced through simulated x86-64 instruction programs |
+| Native assembly execution | Not implemented; the COA lab interprets a documented x86-64 instruction subset in Java and does not execute native machine code |
 | Report generation | Not currently implemented |
 | Algorithm benchmarking | Not currently implemented |
 | Authentication and roles | Not currently implemented |
 | Java Swing GUI | Not used; React web UI is used instead |
 | OpenGL or 3D graphics | Not currently implemented |
-| COA ALU/register simulator | Not currently implemented |
 | IoT/GPS integration | Not currently implemented; values are simulated/demo data |
 
 ## 17. Limitations of the Current MVP
@@ -536,7 +573,7 @@ The current route optimizer is designed for a clear, demonstrable MVP. It does n
 - Time windows.
 - Fuel or emissions costs.
 - Traffic-aware travel times.
-- Full comparison of greedy, Dijkstra, and brute-force candidates.
+- Global optimization or benchmarking/comparison of all possible route orders.
 
 The frontend also does not yet include reports, authentication, a 3D map, or custom data-structure demonstration screens.
 
@@ -544,15 +581,15 @@ The frontend also does not yet include reports, authentication, a 3D map, or cus
 
 The next academic extensions can be added without replacing the current core workflow:
 
-1. Add custom priority queue, queue, deque, linked-list, stack, and hash-table implementations.
-2. Add search and sorting screens for bins, requests, and route history.
+1. Add custom priority queue, queue, deque, and circular-queue implementations if later PL tasks require them.
+2. Add a dedicated search and sorting screen with selectable algorithms and performance comparisons.
 3. Add route candidate comparison and algorithm performance measurements.
 4. Add multiple-truck vehicle-routing optimization.
 5. Add collection history and report generation.
 6. Add authentication and operator roles.
 7. Add WebSocket or Server-Sent Events for live updates.
 8. Add GPS coordinates and real road data.
-9. Add a COA ALU and instruction simulator.
+9. Replace or complement the COA teaching interpreter with native 64-bit assembly execution when an x64 assembler/toolchain is available.
 10. Add optional 3D rendering, lighting, textures, and advanced animation.
 
 ## 19. Final Summary

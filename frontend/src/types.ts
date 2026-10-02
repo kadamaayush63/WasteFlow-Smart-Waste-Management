@@ -64,5 +64,31 @@ export interface Route {
   status: string
   totalDistance: number
   totalTime: number
+  summary: string
   stops: RouteStop[]
+}
+
+export type RouteAlgorithm = 'DIJKSTRA' | 'NEAREST_STOP'
+
+export interface CoaFlags {
+  zero: boolean
+  sign: boolean
+  carry: boolean
+  overflow: boolean
+}
+
+export interface CoaTraceStep {
+  step: number
+  instruction: string
+  registers: Record<string, number>
+  flags: CoaFlags
+}
+
+export interface CoaSimulation {
+  operation: string
+  result: string
+  assemblyProgram: string[]
+  registers: Record<string, number>
+  flags: CoaFlags
+  trace: CoaTraceStep[]
 }

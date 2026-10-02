@@ -6,7 +6,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class WasteBinService {
@@ -20,11 +23,24 @@ public class WasteBinService {
     }
 
     @Transactional(readOnly = true)
-    public List<WasteBinResponse> findAll() {
-        return binRepository.findAllByOrderByStatusDescCurrentFillKgDesc()
-                .stream()
+    public List<WasteBinResponse> findAll(String search) {
+        WasteBinResponse[] bins = binRepository.findAllByOrderByStatusDescCurrentFillKgDesc().stream()
                 .map(WasteBinResponse::from)
-                .toList();
+                .toArray(WasteBinResponse[]::new);
+
+        if (search == null || search.isBlank()) {
+            return Arrays.asList(bins);
+        }
+
+        String query = search.trim().toLowerCase(Locale.ROOT);
+        List<WasteBinResponse> matches = new ArrayList<>();
+        for (WasteBinResponse bin : bins) {
+            if (bin.binCode().toLowerCase(Locale.ROOT).contains(query)
+                    || bin.locationName().toLowerCase(Locale.ROOT).contains(query)) {
+                matches.add(bin);
+            }
+        }
+        return matches;
     }
 
     @Transactional(readOnly = true)
@@ -77,4 +93,5 @@ public class WasteBinService {
             throw new IllegalArgumentException("Current fill cannot exceed bin capacity");
         }
     }
+
 }
