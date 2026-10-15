@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, AlertTriangle, ArrowUpRight, Box, Check, ChevronRight, CircleHelp, Cpu, Factory, Gauge, Map, PackagePlus, RefreshCw, Route as RouteIcon, Truck as TruckIcon, Wifi } from 'lucide-react'
 import { api } from './api'
 import { CoaLab } from './CoaLab'
@@ -9,6 +9,7 @@ import './route-lifecycle.css'
 import './animation.css'
 
 const statusLabel: Record<string, string> = { NORMAL: 'Normal', MEDIUM: 'Medium', HIGH: 'High', CRITICAL: 'Critical', COLLECTED: 'Collected' }
+const DATA_REFRESH_INTERVAL_MS = 20_000
 const formatNumber = (value: number) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 }).format(value)
 const formatDate = (date: Date) => {
   const parts = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).formatToParts(date)
@@ -33,8 +34,11 @@ function App() {
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const isLoadingData = useRef(false)
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (isLoadingData.current) return
+    isLoadingData.current = true
     setError('')
     try {
       const [nextBins, nextRequests, nextLocations, nextRoads, nextTrucks, nextRoute] = await Promise.all([
@@ -42,14 +46,24 @@ function App() {
       ])
       setBins(nextBins); setRequests(nextRequests); setLocations(nextLocations); setRoads(nextRoads); setTrucks(nextTrucks); setRoute(nextRoute)
       if (nextRoute) setActiveView('routes')
-      if (selectedTruck === '' || !nextTrucks.some((truck) => truck.id === selectedTruck && truck.status === 'AVAILABLE')) {
-        setSelectedTruck(nextTrucks.find((truck) => truck.status === 'AVAILABLE')?.id ?? '')
-      }
+      setSelectedTruck((currentTruck) => {
+        if (currentTruck !== '' && nextTrucks.some((truck) => truck.id === currentTruck && truck.status === 'AVAILABLE')) {
+          return currentTruck
+        }
+        return nextTrucks.find((truck) => truck.status === 'AVAILABLE')?.id ?? ''
+      })
     } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Could not reach the WasteFlow API') }
-    finally { setIsLoading(false) }
-  }
+    finally {
+      isLoadingData.current = false
+      setIsLoading(false)
+    }
+  }, [])
 
-  useEffect(() => { void loadData() }, [])
+  useEffect(() => {
+    void loadData()
+    const interval = window.setInterval(() => void loadData(), DATA_REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(interval)
+  }, [loadData])
   useEffect(() => {
     const interval = window.setInterval(() => setToday(new Date()), 60_000)
     return () => window.clearInterval(interval)
@@ -62,7 +76,14 @@ function App() {
     totalWaste: bins.reduce((total, bin) => total + bin.currentFillKg, 0),
   }), [bins, trucks])
 
-  const selectedWeight = requests.filter((request) => selectedRequests.includes(request.id)).reduce((total, request) => {
+  const routeEligibleRequests = requests.filter((request) => {
+    const bin = bins.find((item) => item.id === request.binId)
+    return bin !== undefined && bin.capacityKg > 0 && (bin.currentFillKg / bin.capacityKg) * 100 >= 10
+  })
+  const eligibleRequestIds = new Set(routeEligibleRequests.map((request) => request.id))
+  const selectedRouteRequestIds = selectedRequests.filter((requestId) => eligibleRequestIds.has(requestId))
+
+  const selectedWeight = routeEligibleRequests.filter((request) => selectedRouteRequestIds.includes(request.id)).reduce((total, request) => {
     const bin = bins.find((item) => item.id === request.binId)
     return total + (bin?.currentFillKg ?? 0)
   }, 0)
@@ -75,11 +96,11 @@ function App() {
   }
 
   const optimizeRoute = async () => {
-    if (selectedTruck === '' || selectedRequests.length === 0) return
+    if (selectedTruck === '' || selectedRouteRequestIds.length === 0) return
     setIsOptimizing(true); setError(''); setMessage('')
     const truck = trucks.find((item) => item.id === selectedTruck)
     if (!truck || truck.status !== 'AVAILABLE') { setError('Choose an available truck before building a route'); return }
-    try { const nextRoute = await api.optimize(Number(selectedTruck), selectedRequests, routeAlgorithm); setRoute(nextRoute); setSelectedRequests([]); setMessage(`Route ${nextRoute.id} planned with ${nextRoute.stops.length} stops`); setActiveView('routes'); await loadData() }
+    try { const nextRoute = await api.optimize(Number(selectedTruck), selectedRouteRequestIds, routeAlgorithm); setRoute(nextRoute); setSelectedRequests([]); setMessage(`Route ${nextRoute.id} planned with ${nextRoute.stops.length} stops`); setActiveView('routes'); await loadData() }
     catch (routeError) { setError(routeError instanceof Error ? routeError.message : 'Route optimization failed') }
     finally { setIsOptimizing(false) }
   }
@@ -137,8 +158,8 @@ function App() {
 
         {activeView === 'coa' ? <CoaLab bins={bins} route={route} /> : activeView === 'bins' ? <BinsPanel bins={bins} locations={locations} onCreated={loadData} /> : <>
           <section className="workspace-grid">
-            <div className="panel request-panel"><div className="panel-header"><div><p className="eyebrow">PRIORITY QUEUE</p><h2>Requests needing a truck</h2></div><span className="queue-badge">{requests.length} pending</span></div><p className="panel-subtitle">Select urgent bins to build a collection route. Highest fill level is served first.</p><div className="request-list">{requests.length === 0 ? <div className="empty-state"><Check size={20} /><p>Queue clear.<br />Run a simulation tick to generate work.</p></div> : requests.map((request, index) => { const bin = bins.find((item) => item.id === request.binId); const selected = selectedRequests.includes(request.id); return <button key={request.id} className={`request-row ${selected ? 'selected' : ''}`} onClick={() => toggleRequest(request.id)}><span className="rank">0{index + 1}</span><span className={`priority-dot ${request.urgency.toLowerCase()}`} /><span className="request-main"><b>{request.binCode}</b><small>{bin?.locationName ?? 'Unknown location'} · {formatNumber(bin?.currentFillKg ?? 0)} / {formatNumber(bin?.capacityKg ?? 0)} kg</small></span><span className="request-score"><b>{formatNumber(request.priorityScore)}</b><small>score</small></span><span className={`status-pill ${request.urgency.toLowerCase()}`}>{statusLabel[request.urgency] ?? request.urgency}</span><span className={`check-box ${selected ? 'checked' : ''}`}>{selected && <Check size={13} />}</span></button> })}</div></div>
-            <div className="panel fleet-panel"><div className="panel-header"><div><p className="eyebrow">FLEET STATUS</p><h2>Available trucks</h2></div><TruckIcon size={19} /></div><div className="truck-list">{trucks.map((truck) => <button key={truck.id} disabled={truck.status !== 'AVAILABLE'} className={`truck-row ${selectedTruck === truck.id ? 'selected' : ''}`} onClick={() => setSelectedTruck(truck.id)}><span className="truck-icon"><TruckIcon size={18} /></span><span><b>{truck.truckCode}</b><small>{formatNumber(truck.capacityKg)} kg capacity · {truck.status.toLowerCase()}</small></span><span className={`fleet-dot ${truck.status.toLowerCase()}`} /></button>)}</div><div className="capacity-meter"><div><span>Selected load</span><b>{formatNumber(selectedWeight)} / {selectedTruck ? formatNumber(trucks.find((truck) => truck.id === selectedTruck)?.capacityKg ?? 0) : '—'} kg</b></div><div className="meter-track"><span style={{ width: `${Math.min(100, selectedWeight / (Number(selectedTruck ? trucks.find((truck) => truck.id === selectedTruck)?.capacityKg : 1) || 1) * 100)}%` }} /></div></div><button className="route-button" onClick={optimizeRoute} disabled={isOptimizing || selectedRequests.length === 0 || selectedTruck === '' || trucks.find((truck) => truck.id === selectedTruck)?.status !== 'AVAILABLE'}><Map size={17} /> {isOptimizing ? 'Calculating shortest path...' : 'Build optimized route'} <ArrowUpRight size={16} /></button></div>
+            <div className="panel request-panel"><div className="panel-header"><div><p className="eyebrow">PRIORITY QUEUE</p><h2>Requests needing a truck</h2></div><span className="queue-badge">{routeEligibleRequests.length} eligible</span></div><p className="panel-subtitle">Only bins at 10% fill or above can be added to a route. Highest fill level is served first.</p><div className="request-list">{routeEligibleRequests.length === 0 ? <div className="empty-state"><Check size={20} /><p>No route-eligible bins.<br />Bins need at least 10% fill.</p></div> : routeEligibleRequests.map((request, index) => { const bin = bins.find((item) => item.id === request.binId); const selected = selectedRouteRequestIds.includes(request.id); const fillPercentage = bin ? bin.currentFillKg / bin.capacityKg * 100 : request.priorityScore; const currentStatus = bin?.status ?? request.urgency; return <button key={request.id} className={`request-row ${selected ? 'selected' : ''}`} onClick={() => toggleRequest(request.id)}><span className="rank">0{index + 1}</span><span className={`priority-dot ${currentStatus.toLowerCase()}`} /><span className="request-main"><b>{request.binCode}</b><small>{bin?.locationName ?? 'Unknown location'} · {formatNumber(bin?.currentFillKg ?? 0)} / {formatNumber(bin?.capacityKg ?? 0)} kg</small></span><span className="request-score"><b>{formatNumber(fillPercentage)}%</b><small>full</small></span><span className={`status-pill ${currentStatus.toLowerCase()}`}>{statusLabel[currentStatus] ?? currentStatus}</span><span className={`check-box ${selected ? 'checked' : ''}`}>{selected && <Check size={13} />}</span></button> })}</div></div>
+            <div className="panel fleet-panel"><div className="panel-header"><div><p className="eyebrow">FLEET STATUS</p><h2>Available trucks</h2></div><TruckIcon size={19} /></div><div className="truck-list">{trucks.map((truck) => <button key={truck.id} disabled={truck.status !== 'AVAILABLE'} className={`truck-row ${selectedTruck === truck.id ? 'selected' : ''}`} onClick={() => setSelectedTruck(truck.id)}><span className="truck-icon"><TruckIcon size={18} /></span><span><b>{truck.truckCode}</b><small>{formatNumber(truck.capacityKg)} kg capacity · {truck.status.toLowerCase()}</small></span><span className={`fleet-dot ${truck.status.toLowerCase()}`} /></button>)}</div><div className="capacity-meter"><div><span>Selected load</span><b>{formatNumber(selectedWeight)} / {selectedTruck ? formatNumber(trucks.find((truck) => truck.id === selectedTruck)?.capacityKg ?? 0) : '—'} kg</b></div><div className="meter-track"><span style={{ width: `${Math.min(100, selectedWeight / (Number(selectedTruck ? trucks.find((truck) => truck.id === selectedTruck)?.capacityKg : 1) || 1) * 100)}%` }} /></div></div><button className="route-button" onClick={optimizeRoute} disabled={isOptimizing || selectedRouteRequestIds.length === 0 || selectedTruck === '' || trucks.find((truck) => truck.id === selectedTruck)?.status !== 'AVAILABLE'}><Map size={17} /> {isOptimizing ? 'Calculating shortest path...' : 'Build optimized route'} <ArrowUpRight size={16} /></button></div>
           </section>
           <section className="map-panel panel"><div className="panel-header map-header"><div><p className="eyebrow">LIVE ROAD GRAPH · DIJKSTRA</p><h2>Collection area</h2></div><div className="map-legend"><span><i className="legend-dot depot" /> Depot</span><span><i className="legend-dot urgent" /> Urgent bin</span><span><i className="legend-dot route" /> Planned route</span></div></div><div className="map-wrap"><RouteCanvas locations={locations} roads={roads} bins={bins} route={route} truckLocationId={route ? trucks.find((truck) => truck.id === route.truckId)?.locationId ?? null : null} /><div className="map-overlay"><span className="mono">{route ? `ROUTE ${String(route.id).padStart(3, '0')}` : 'NO ACTIVE ROUTE'}</span><b>{route ? `${formatNumber(route.totalDistance)} km planned` : 'Select requests to begin'}</b></div></div></section>
         </>}

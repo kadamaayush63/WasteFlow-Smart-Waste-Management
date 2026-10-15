@@ -3,6 +3,7 @@ import type { Bin, CoaSimulation, CollectionRequest, Location, Road, Route, Rout
 const request = async <T>(path: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+    cache: 'no-store',
     ...options,
   })
   if (!response.ok) {

@@ -53,4 +53,10 @@ public class CollectionRequest {
     public Instant getCreatedAt() { return createdAt; }
     public void assign() { status = RequestStatus.ASSIGNED; }
     public void complete() { status = RequestStatus.COMPLETED; resolvedAt = Instant.now(); }
+    public void cancel() { status = RequestStatus.CANCELLED; resolvedAt = Instant.now(); }
+
+    public void refreshFromBin() {
+        priorityScore = bin.getCurrentFillKg() / bin.getCapacityKg() * 100;
+        urgency = bin.getStatus().name();
+    }
 }

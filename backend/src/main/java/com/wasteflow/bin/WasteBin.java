@@ -72,6 +72,14 @@ public class WasteBin {
         this.status = classifyStatus();
     }
 
+    public void setCurrentFillKg(double currentFillKg) {
+        if (!Double.isFinite(currentFillKg) || currentFillKg < 0 || currentFillKg > capacityKg) {
+            throw new IllegalArgumentException("Current fill must be between 0 and bin capacity");
+        }
+        this.currentFillKg = currentFillKg;
+        this.status = classifyStatus();
+    }
+
     public BinStatus classifyStatus() {
         double fillRatio = capacityKg == 0 ? 0 : currentFillKg / capacityKg;
         if (fillRatio >= 0.95) return BinStatus.CRITICAL;

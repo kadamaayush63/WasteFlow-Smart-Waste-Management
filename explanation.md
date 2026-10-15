@@ -87,7 +87,6 @@ Examples include:
 - North Gate.
 - Library.
 - Student Center.
-- Sports Complex.
 
 ### Road
 
@@ -344,6 +343,32 @@ Each simulation tick:
 
 This demonstrates the monitoring and alert-generation part of `doc.md` using deterministic data.
 
+The backend also polls the latest ThingSpeak feed every 20 seconds by default.
+`field1`, `field2`, and `field3` provide centimeter distances for the Library
+bin (BIN-001), North Gate bin (BIN-002), and Student Center bin (BIN-003),
+respectively. The configured linear calibration maps 2 cm to 100% full and
+12 cm to empty, with readings outside that range clamped to the nearest endpoint
+(for example, 8 cm maps to 40%; distances of 12 cm or more, including anything
+over 15 cm, map to 0%). Blank sensor fields are skipped so that an available
+sensor can still update its own bin. Each percentage is saved as a fill weight
+using that bin's capacity. ThingSpeak creates a pending request for every bin
+at 10% fill or higher, so each qualifying bin is available in the Route Planner.
+A fresh browser refresh reloads bin and
+request data without using cached API responses. Existing pending request
+percentages and urgency follow the latest sensor fill, and the request remains
+in the queue when the fill is above 0%, including values below the collection
+threshold. A pending request is removed only when a fresh sensor reading is
+exactly 0%.
+Only bins at 10% fill or higher are selectable for route planning; the backend
+also validates the threshold when a route is created.
+ThingSpeak is polled every 20 seconds by default.
+After a truck collects a bin, it stays at 0% for 20 seconds; readings published
+before collection or received during that cooldown are ignored. The next fresh
+reading updates the fill and creates a new truck request if the bin is HIGH or
+CRITICAL.
+Configure `THINGSPEAK_CHANNEL_ID` and `THINGSPEAK_READ_API_KEY` through the
+environment or `backend/.env`.
+
 ## 10. Database Design
 
 The first migration creates these tables:
@@ -562,7 +587,7 @@ npm run build
 | Authentication and roles | Not currently implemented |
 | Java Swing GUI | Not used; React web UI is used instead |
 | OpenGL or 3D graphics | Not currently implemented |
-| IoT/GPS integration | Not currently implemented; values are simulated/demo data |
+| IoT/GPS integration | ThingSpeak readings update bins 1, 2, and 3; GPS integration is not currently implemented |
 
 ## 17. Limitations of the Current MVP
 

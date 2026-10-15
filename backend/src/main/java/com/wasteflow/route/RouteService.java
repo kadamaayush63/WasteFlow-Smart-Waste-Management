@@ -25,6 +25,8 @@ import java.util.stream.Collectors;
 @Service
 public class RouteService {
 
+    private static final double MINIMUM_ROUTE_FILL_PERCENT = 10;
+
     private final RouteRepository routeRepository;
     private final RouteStopRepository stopRepository;
     private final TruckRepository truckRepository;
@@ -68,6 +70,12 @@ public class RouteService {
             requests.add(request);
         }
         List<CollectionRequest> selectedRequests = requests.toList();
+        for (CollectionRequest request : selectedRequests) {
+            if (!isRouteEligible(request)) {
+                throw new IllegalStateException(
+                        "Bin " + request.getBin().getBinCode() + " must be at least 10% full to add to a route");
+            }
+        }
         double load = selectedRequests.stream().mapToDouble(request -> request.getBin().getCurrentFillKg()).sum();
         if (load > truck.getCapacityKg()) {
             throw new IllegalStateException("Selected requests exceed truck capacity");
@@ -166,6 +174,12 @@ public class RouteService {
     private Route getRoute(Long id) {
         return routeRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Route not found: " + id));
+    }
+
+    static boolean isRouteEligible(CollectionRequest request) {
+        double fillPercentage = request.getBin().getCurrentFillKg()
+                / request.getBin().getCapacityKg() * 100;
+        return fillPercentage >= MINIMUM_ROUTE_FILL_PERCENT;
     }
 
     private RouteResponse currentResponse(Route route) {
