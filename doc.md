@@ -69,7 +69,7 @@ Complexity analysis	Compare algorithms using time/space complexity and performan
 •	Collections Framework: ArrayList, LinkedList, Queue/Deque/PriorityQueue, HashMap, etc.
 •	Exception handling: invalid IDs, invalid capacities, unavailable trucks, file/database errors.
 •	Generics: reusable data structures or utility classes.
-•	Java Swing GUI: dashboard, forms, tables, controls, and visualization panels.
+•	Standalone Java Swing desktop client in `desktop/` for bin/request monitoring and route operations. It calls the existing REST API; routing, validation, persistence, and simulation remain in the Spring Boot backend.
 •	Multithreading: simulated sensor/fill-level updates, animation, or background route calculation.
 •	File handling: export/import CSV or configuration/report files.
 •	Packages: separate model, service, algorithm, GUI, database, and utility components.
@@ -116,7 +116,7 @@ For a college project, MySQL with JDBC is a practical choice. If a database is n
 •	2D map renderer with DDA/Bresenham, polygon filling, transformations and clipping.
 •	Animated truck with rotation, translation and optional Bezier movement.
 •	Optional 3D visualization with lighting and texture.
-•	Java Swing GUI with multiple windows/panels.
+•	Java Swing operator dashboard with panels for bin status, pending requests, truck selection, route planning, and route-stop completion.
 •	Background simulation thread for changing bin fill levels.
 •	File import/export and exception handling.
 •	MySQL/JDBC persistence.
