@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, AlertTriangle, ArrowUpRight, Box, Check, ChevronRight, CircleHelp, Cpu, Factory, Gauge, Map, PackagePlus, RefreshCw, Route as RouteIcon, Truck as TruckIcon, Wifi } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowUpRight, Box, Check, ChevronRight, CircleHelp, Cpu, Factory, Gauge, Map, PackagePlus, RefreshCw, Route as RouteIcon, Truck as TruckIcon, Undo2, Wifi } from 'lucide-react'
 import { api } from './api'
 import { CoaLab } from './CoaLab'
 import { RouteCanvas } from './RouteCanvas'
@@ -32,6 +32,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true)
   const [isTicking, setIsTicking] = useState(false)
   const [isOptimizing, setIsOptimizing] = useState(false)
+  const [isUndoing, setIsUndoing] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const isLoadingData = useRef(false)
@@ -111,6 +112,18 @@ function App() {
     catch (routeError) { setError(routeError instanceof Error ? routeError.message : 'Could not start route') }
   }
 
+  const undoPlannedRoute = async () => {
+    if (!route) return
+    const routeId = route.id
+    setIsUndoing(true); setError(''); setMessage('')
+    try {
+      await api.undoLatestRoute()
+      await loadData()
+      setMessage(`Route ${routeId} cancelled. Its requests are back in the queue.`)
+    } catch (routeError) { setError(routeError instanceof Error ? routeError.message : 'Could not undo planned route') }
+    finally { setIsUndoing(false) }
+  }
+
   const completeStop = async (stopId: number) => {
     if (!route) return
     try { setRoute(await api.completeStop(route.id, stopId)); await loadData(); setMessage('Collection stop completed.') }
@@ -164,7 +177,47 @@ function App() {
           <section className="map-panel panel"><div className="panel-header map-header"><div><p className="eyebrow">LIVE ROAD GRAPH · DIJKSTRA</p><h2>Collection area</h2></div><div className="map-legend"><span><i className="legend-dot depot" /> Depot</span><span><i className="legend-dot urgent" /> Urgent bin</span><span><i className="legend-dot route" /> Planned route</span></div></div><div className="map-wrap"><RouteCanvas locations={locations} roads={roads} bins={bins} route={route} truckLocationId={route ? trucks.find((truck) => truck.id === route.truckId)?.locationId ?? null : null} /><div className="map-overlay"><span className="mono">{route ? `ROUTE ${String(route.id).padStart(3, '0')}` : 'NO ACTIVE ROUTE'}</span><b>{route ? `${formatNumber(route.totalDistance)} km planned` : 'Select requests to begin'}</b></div></div></section>
         </>}
 
-        {activeView === 'routes' && route && <section className="panel route-summary"><div><p className="eyebrow">LATEST PLAN</p><h2>Route #{route.id} ready for dispatch</h2><p>{route.stops.length} stops · {formatNumber(route.totalDistance)} km · {formatNumber(route.totalTime)} minutes</p><div className="route-stops">{route.stops.map((stop) => <div className="route-stop" key={stop.id}><span className={stop.status === 'COMPLETED' ? 'stop-number done' : 'stop-number'}>{stop.status === 'COMPLETED' ? <Check size={12} /> : String(stop.sequenceNumber).padStart(2, '0')}</span><span><b>Stop {String(stop.sequenceNumber).padStart(2, '0')}</b><small>{bins.find((bin) => bin.id === stop.binId)?.binCode ?? `Bin #${stop.binId}`}</small></span>{stop.status === 'PENDING' && route.status === 'COLLECTING' && <button className="stop-action" onClick={() => void completeStop(stop.id)}>Complete</button>}</div>)}</div></div><div className="route-actions"><span className="route-state"><span className="pulse" /> {route.status}</span>{route.status === 'ASSIGNED' && <button className="secondary-button" onClick={() => void startRoute()}>Start route</button>}{route.status === 'COLLECTING' && <button className="primary-button compact" disabled={route.stops.some((stop) => stop.status === 'PENDING')} onClick={() => void completeRoute()}>Complete route</button>}</div></section>}
+        {activeView === 'routes' && route && (
+          <section className="panel route-summary">
+            <div>
+              <p className="eyebrow">LATEST PLAN</p>
+              <h2>Route #{route.id} ready for dispatch</h2>
+              <p>{route.stops.length} stops · {formatNumber(route.totalDistance)} km · {formatNumber(route.totalTime)} minutes</p>
+              <div className="route-stops">
+                {route.stops.map((stop) => (
+                  <div className="route-stop" key={stop.id}>
+                    <span className={stop.status === 'COMPLETED' ? 'stop-number done' : 'stop-number'}>
+                      {stop.status === 'COMPLETED' ? <Check size={12} /> : String(stop.sequenceNumber).padStart(2, '0')}
+                    </span>
+                    <span>
+                      <b>Stop {String(stop.sequenceNumber).padStart(2, '0')}</b>
+                      <small>{bins.find((bin) => bin.id === stop.binId)?.binCode ?? `Bin #${stop.binId}`}</small>
+                    </span>
+                    {stop.status === 'PENDING' && route.status === 'COLLECTING' && (
+                      <button className="stop-action" onClick={() => void completeStop(stop.id)}>Complete</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="route-actions">
+              <span className="route-state"><span className="pulse" /> {route.status}</span>
+              {route.status === 'ASSIGNED' && (
+                <>
+                  <button className="secondary-button" onClick={() => void startRoute()}>Start route</button>
+                  <button className="secondary-button" disabled={isUndoing} onClick={() => void undoPlannedRoute()}>
+                    <Undo2 size={15} /> {isUndoing ? 'Undoing...' : 'Undo plan'}
+                  </button>
+                </>
+              )}
+              {route.status === 'COLLECTING' && (
+                <button className="primary-button compact" disabled={route.stops.some((stop) => stop.status === 'PENDING')} onClick={() => void completeRoute()}>
+                  Complete route
+                </button>
+              )}
+            </div>
+          </section>
+        )}
         {activeView === 'routes' && route && <p className="route-report">{route.summary}</p>}
       </main>
     </div>

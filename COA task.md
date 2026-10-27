@@ -1,4 +1,4 @@
-# Computer Organization and Architecture Tasks 1 and 2
+# Computer Organization and Architecture Tasks 1, 2, and 3
 
 ## Project context
 
@@ -42,6 +42,25 @@ WasteFlow includes a COA Lab that demonstrates processor-level execution using r
 
 The teaching simulator interprets `MOV`, `ADD`, `IMUL`, `CQO`, `IDIV`, `CMP`, `JGE`, `JL`, `JMP`, and `HLT`. The instruction dispatch and control flow are in [X64InstructionSimulator.java](backend/src/main/java/com/wasteflow/coa/X64InstructionSimulator.java#L42).
 
+## Task 3 (CO3): Arithmetic algorithm and string/data processing
+
+### Concepts and locations
+
+| COA Task 3 concept | How it is used | Source location |
+|---|---|---|
+| Successive addition | The simulator adds the loaded route distance once per run using a 64-bit `ADD`/`DEC`/`CMP`/`JNZ` loop to estimate total mileage. | [CoaSimulationService.java](backend/src/main/java/com/wasteflow/coa/CoaSimulationService.java), [X64InstructionSimulator.java](backend/src/main/java/com/wasteflow/coa/X64InstructionSimulator.java) |
+| Route workload input | The operator selects a repetition count from 1 to 100; the loaded route distance and count are sent to the backend. | [CoaLab.tsx](frontend/src/CoaLab.tsx), [CoaSimulationController.java](backend/src/main/java/com/wasteflow/coa/CoaSimulationController.java) |
+| Route bin-code string processing | Bin codes from route stops are processed in planned order as null-terminated input data; simulated `LODSB`/`STOSB` instructions copy codes and add separators to build the route summary. | [CoaSimulationService.java](backend/src/main/java/com/wasteflow/coa/CoaSimulationService.java), [X64InstructionSimulator.java](backend/src/main/java/com/wasteflow/coa/X64InstructionSimulator.java) |
+| CO3 controls and execution trace | The COA Lab runs both operations and displays the instruction listing, register values, flags, and instruction-by-instruction trace. | [CoaLab.tsx](frontend/src/CoaLab.tsx) |
+| Native 64-bit assembly execution | CO3 instructions are interpreted by the Java x86-64-style teaching simulator; they are not assembled into or executed as native machine code. | [X64InstructionSimulator.java](backend/src/main/java/com/wasteflow/coa/X64InstructionSimulator.java) |
+
+CO3 API endpoints:
+
+- `POST /api/coa/route-workload` accepts `{"distanceKm": 3.25, "repetitionCount": 4}` and returns the repeated-route mileage calculation and CPU trace.
+- `POST /api/coa/route-summary` accepts `{"binCodes": ["BIN-01", "BIN-02"]}` and returns the route summary assembled by the simulated string instructions.
+
+The supported simulated instruction subset now also includes `DEC`, `JNZ`, `JE`/`JZ`, `TEST`, `LODSB`, and `STOSB` for loops and byte-oriented string processing.
+
 ### API examples
 
 Bin-status simulation:
@@ -64,8 +83,8 @@ Content-Type: application/json
 
 ## Tests
 
-The COA simulation tests cover a critical bin threshold, invalid fill above capacity, and route distance/time accumulation using simulated `ADD` instructions. See [CoaSimulationServiceTest.java](backend/src/test/java/com/wasteflow/coa/CoaSimulationServiceTest.java#L20).
+The COA simulation tests cover bin thresholds, invalid fill, route distance/time accumulation, repeated-route mileage using successive addition, route-summary string processing, and invalid string/workload inputs. See [CoaSimulationServiceTest.java](backend/src/test/java/com/wasteflow/coa/CoaSimulationServiceTest.java#L20).
 
 ## Summary
 
-Task 1 processor-model concepts—registers, ALU operations, flags, control flow, and execution trace—are implemented in an educational simulator and exposed in the application UI. Task 2's two WasteFlow calculations are connected to simulated x86-64-style programs. **Native 64-bit Assembly compilation/execution is not implemented**, so any assignment requirement specifically requiring actual assembly source or machine-code execution remains outstanding.
+Task 1 processor-model concepts—registers, ALU operations, flags, control flow, and execution trace—are implemented in an educational simulator and exposed in the application UI. Task 2's two WasteFlow calculations and CO3's repeated-route arithmetic and bin-code string processing are connected to simulated x86-64-style programs. **Native 64-bit Assembly compilation/execution is not implemented**, so any assignment requirement specifically requiring actual assembly source or machine-code execution remains outstanding.

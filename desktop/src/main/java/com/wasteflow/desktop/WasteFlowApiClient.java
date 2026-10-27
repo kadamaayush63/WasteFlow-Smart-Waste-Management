@@ -62,6 +62,10 @@ final class WasteFlowApiClient {
                 Route.class);
     }
 
+    Route undoLatestPlannedRoute() throws IOException, InterruptedException {
+        return post("api/routes/undo-latest", Map.of(), Route.class);
+    }
+
     Route startRoute(long routeId) throws IOException, InterruptedException {
         return post("api/routes/" + routeId + "/start", Map.of(), Route.class);
     }

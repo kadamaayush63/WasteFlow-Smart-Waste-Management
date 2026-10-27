@@ -1,4 +1,4 @@
-# Programming Lab Tasks 1 and 2 Implementation
+# Programming Lab Tasks 1, 2, and 3 Implementation
 
 ## Project
 
@@ -45,10 +45,29 @@ During route planning, selected collection requests are ordered by priority and 
 
 A linked list is suitable here because the number of selected requests and route stops varies per route. The structure can grow dynamically and appending at the tail is constant time. Searching, updating, and removing by value require traversal, which is acceptable for the small route lists in this project.
 
+## Task 3: Queue and Stack
+
+### Concepts and locations
+
+| Task 3 concept | How it is used | Source location |
+|---|---|---|
+| Queue storage (FIFO) | A custom generic array-backed queue stores collection requests in the route's planned stop order. | [ArrayQueue.java](backend/src/main/java/com/wasteflow/route/ArrayQueue.java) |
+| Enqueue | Ordered requests are added to the dispatch queue after the route-ordering strategy selects their sequence. | [RouteService.java](backend/src/main/java/com/wasteflow/route/RouteService.java) |
+| Dequeue | Requests are removed one at a time from the front of the queue, assigned, and converted into route stops in FIFO order. | [RouteService.java](backend/src/main/java/com/wasteflow/route/RouteService.java) |
+| Queue inspection and state | `peek`, `isEmpty`, and `size` expose the front item and queue state. | [ArrayQueue.java](backend/src/main/java/com/wasteflow/route/ArrayQueue.java) |
+| Stack storage (LIFO) | A custom generic array-backed stack holds unstarted routes that are eligible for undo. | [ArrayStack.java](backend/src/main/java/com/wasteflow/route/ArrayStack.java) |
+| Push and pop | Routes are pushed oldest-to-newest and the newest planned route is popped for undo. | [RouteService.java](backend/src/main/java/com/wasteflow/route/RouteService.java) |
+| Stack inspection and state | `peek`, `isEmpty`, and `size` expose the top item and stack state. | [ArrayStack.java](backend/src/main/java/com/wasteflow/route/ArrayStack.java) |
+| Undo planned route | The operator can undo the latest unstarted route; it is cancelled, its truck is made available, and its requests return to pending. Started routes cannot be undone. | [RouteService.java](backend/src/main/java/com/wasteflow/route/RouteService.java), [RouteController.java](backend/src/main/java/com/wasteflow/route/RouteController.java), [App.tsx](frontend/src/App.tsx) |
+
+### Integration in WasteFlow
+
+When a route is built, the chosen route-ordering strategy first determines the stop sequence. The service enqueues that sequence and dequeues requests one at a time to assign them and create route stops in FIFO order. Before a planned route has started, the operator can choose **Undo plan**. The service loads unstarted assigned routes from oldest to newest, pushes them onto a stack, and pops the newest route. It cancels that route, makes its truck available, and returns its assigned requests to pending status. Started routes cannot be undone, preventing already collected work from being reversed.
+
 ## Tests
 
-The linked-list operations are covered by [SinglyLinkedListTest.java](backend/src/test/java/com/wasteflow/route/SinglyLinkedListTest.java). Linear bin search is covered by [WasteBinServiceTest.java](backend/src/test/java/com/wasteflow/bin/WasteBinServiceTest.java).
+The linked-list operations are covered by [SinglyLinkedListTest.java](backend/src/test/java/com/wasteflow/route/SinglyLinkedListTest.java); queue and stack behavior is covered by [ArrayQueueStackTest.java](backend/src/test/java/com/wasteflow/route/ArrayQueueStackTest.java). Linear bin search is covered by [WasteBinServiceTest.java](backend/src/test/java/com/wasteflow/bin/WasteBinServiceTest.java).
 
 ## Summary
 
-Task 1 concepts are used for bin display and search, while the application's create, update, and delete operations persist through the database. Task 2's custom singly linked list is integrated into route planning and provides insert, find, update, delete, traversal, and size operations.
+Task 1 concepts are used for bin display and search, while the application's create, update, and delete operations persist through the database. Task 2's custom singly linked list is integrated into route planning and provides insert, find, update, delete, traversal, and size operations. Task 3's FIFO queue processes stops in the planned order, and its LIFO stack powers undo for the latest unstarted route.

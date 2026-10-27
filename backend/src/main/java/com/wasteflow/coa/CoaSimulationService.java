@@ -2,15 +2,19 @@ package com.wasteflow.coa;
 
 import com.wasteflow.coa.CoaSimulationRequest.BinStatus;
 import com.wasteflow.coa.CoaSimulationRequest.Leg;
+import com.wasteflow.coa.CoaSimulationRequest.RouteSummary;
 import com.wasteflow.coa.CoaSimulationRequest.RouteTotals;
+import com.wasteflow.coa.CoaSimulationRequest.RouteWorkload;
 import com.wasteflow.coa.CoaSimulationResponse.CpuFlags;
 import com.wasteflow.coa.CoaSimulationResponse.TraceStep;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
+import java.util.Map;
 
 @Service
 public class CoaSimulationService {
@@ -92,6 +96,84 @@ public class CoaSimulationService {
                 program,
                 execution
         );
+    }
+
+    public CoaSimulationResponse simulateRouteWorkload(RouteWorkload input) {
+        validateFiniteRange(input.distanceKm(), "Distance");
+        if (input.repetitionCount() < 1 || input.repetitionCount() > 100) {
+            throw new IllegalArgumentException("Route repetition count must be between 1 and 100");
+        }
+
+        List<String> program = List.of(
+                "MOV RAX, 0",
+                "MOV RBX, " + toMilliUnits(input.distanceKm()),
+                "MOV RCX, " + input.repetitionCount(),
+                "REPEAT_ROUTE:",
+                "ADD RAX, RBX",
+                "DEC RCX",
+                "CMP RCX, 0",
+                "JNZ REPEAT_ROUTE",
+                "HLT"
+        );
+        X64InstructionSimulator.Result execution = new X64InstructionSimulator().execute(program);
+        double repeatedDistanceKm = execution.registers().get("RAX") / 1000.0;
+        return response(
+                "ROUTE_WORKLOAD",
+                String.format(Locale.ROOT, "%d runs x %.3f km = %.3f km total",
+                        input.repetitionCount(), input.distanceKm(), repeatedDistanceKm),
+                program,
+                execution
+        );
+    }
+
+    public CoaSimulationResponse simulateRouteSummary(RouteSummary input) {
+        if (input.binCodes().isEmpty() || input.binCodes().size() > 10) {
+            throw new IllegalArgumentException("A route summary must contain between 1 and 10 bin codes");
+        }
+
+        ByteArrayOutputStream inputMemory = new ByteArrayOutputStream();
+        for (String binCode : input.binCodes()) {
+            if (binCode.isBlank() || binCode.length() > 32
+                    || binCode.chars().anyMatch(character -> character < 0x20 || character > 0x7e)) {
+                throw new IllegalArgumentException("Bin codes must contain 1 to 32 printable ASCII characters");
+            }
+            inputMemory.writeBytes(binCode.getBytes(StandardCharsets.US_ASCII));
+            inputMemory.write(0);
+        }
+
+        List<String> program = List.of(
+                "MOV RSI, 0",
+                "MOV RDI, 0",
+                "MOV RCX, " + input.binCodes().size(),
+                "NEXT_CHARACTER:",
+                "LODSB",
+                "TEST AL, AL",
+                "JZ END_BIN_CODE",
+                "STOSB",
+                "JMP NEXT_CHARACTER",
+                "END_BIN_CODE:",
+                "DEC RCX",
+                "CMP RCX, 0",
+                "JE FINISH_SUMMARY",
+                "MOV AL, 32",
+                "STOSB",
+                "MOV AL, 45",
+                "STOSB",
+                "MOV AL, 62",
+                "STOSB",
+                "MOV AL, 32",
+                "STOSB",
+                "JMP NEXT_CHARACTER",
+                "FINISH_SUMMARY:",
+                "MOV AL, 0",
+                "STOSB",
+                "HLT"
+        );
+        byte[] sourceBytes = inputMemory.toByteArray();
+        int outputCapacity = sourceBytes.length + (input.binCodes().size() - 1) * 4 + 1;
+        X64InstructionSimulator.Result execution = new X64InstructionSimulator()
+                .execute(program, sourceBytes, outputCapacity);
+        return response("ROUTE_SUMMARY", execution.output(), program, execution);
     }
 
     private void validateFiniteRange(double value, String label) {

@@ -24,9 +24,12 @@ export const api = {
   getActiveRoute: async () => (await request<Route | undefined>('/api/routes/active')) ?? null,
   tick: () => request<{ changedBinCount: number; createdRequestCount: number }>('/api/simulation/tick', { method: 'POST' }),
   optimize: (truckId: number, requestIds: number[], algorithm: RouteAlgorithm = 'DIJKSTRA') => request<Route>('/api/routes/optimize', { method: 'POST', body: JSON.stringify({ truckId, requestIds, algorithm }) }),
+  undoLatestRoute: () => request<Route>('/api/routes/undo-latest', { method: 'POST' }),
   startRoute: (routeId: number) => request<Route>(`/api/routes/${routeId}/start`, { method: 'POST' }),
   completeStop: (routeId: number, stopId: number) => request<Route>(`/api/routes/${routeId}/stops/${stopId}/complete`, { method: 'POST' }),
   completeRoute: (routeId: number) => request<Route>(`/api/routes/${routeId}/complete`, { method: 'POST' }),
   simulateBinStatus: (currentFillKg: number, capacityKg: number) => request<CoaSimulation>('/api/coa/bin-status', { method: 'POST', body: JSON.stringify({ currentFillKg, capacityKg }) }),
   simulateRouteTotals: (distanceKm: number, travelTimeMinutes: number) => request<CoaSimulation>('/api/coa/route-totals', { method: 'POST', body: JSON.stringify({ legs: [{ distanceKm, travelTimeMinutes }] }) }),
+  simulateRouteWorkload: (distanceKm: number, repetitionCount: number) => request<CoaSimulation>('/api/coa/route-workload', { method: 'POST', body: JSON.stringify({ distanceKm, repetitionCount }) }),
+  simulateRouteSummary: (binCodes: string[]) => request<CoaSimulation>('/api/coa/route-summary', { method: 'POST', body: JSON.stringify({ binCodes }) }),
 }

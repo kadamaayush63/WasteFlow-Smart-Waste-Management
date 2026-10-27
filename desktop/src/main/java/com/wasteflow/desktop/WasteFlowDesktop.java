@@ -46,6 +46,7 @@ public final class WasteFlowDesktop {
     private final JButton refreshButton = new JButton("Refresh");
     private final JButton tickButton = new JButton("Advance simulation");
     private final JButton optimizeButton = new JButton("Plan selected requests");
+    private final JButton undoRouteButton = new JButton("Undo latest plan");
     private final JButton startButton = new JButton("Start route");
     private final JButton completeStopButton = new JButton("Complete selected stop");
     private final JButton completeRouteButton = new JButton("Finish route");
@@ -94,6 +95,11 @@ public final class WasteFlowDesktop {
                     + result.createdRequestCount() + " requests.");
         }));
         optimizeButton.addActionListener(event -> optimizeRoute());
+        undoRouteButton.addActionListener(event -> runAction("Undoing latest route plan", () -> {
+            WasteFlowApiClient.Route cancelledRoute = api.undoLatestPlannedRoute();
+            return operationResult("Route #" + cancelledRoute.id()
+                    + " cancelled; its requests are pending again.");
+        }));
         startButton.addActionListener(event -> mutateRoute("Starting route", api::startRoute, "Route started."));
         completeStopButton.addActionListener(event -> completeSelectedStop());
         completeRouteButton.addActionListener(event -> mutateRoute("Finishing route", api::completeRoute, "Route completed; the truck is available again."));
@@ -180,9 +186,11 @@ public final class WasteFlowDesktop {
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         buttons.setOpaque(false);
         styleSecondary(startButton);
+        styleSecondary(undoRouteButton);
         styleSecondary(completeStopButton);
         styleSecondary(completeRouteButton);
         buttons.add(startButton);
+        buttons.add(undoRouteButton);
         buttons.add(completeStopButton);
         buttons.add(completeRouteButton);
         panel.add(buttons, BorderLayout.SOUTH);
@@ -358,6 +366,7 @@ public final class WasteFlowDesktop {
         tickButton.setEnabled(!busy);
         optimizeButton.setEnabled(!busy && !pendingRequests.isEmpty() && truckPicker.getSelectedItem() != null
                 && activeRoute == null);
+        undoRouteButton.setEnabled(!busy && isAssigned());
         startButton.setEnabled(!busy && isAssigned());
         completeStopButton.setEnabled(!busy && isCollecting() && stopsTable.getSelectedRow() >= 0);
         completeRouteButton.setEnabled(!busy && isCollecting() && allStopsComplete());
@@ -370,6 +379,7 @@ public final class WasteFlowDesktop {
         boolean busy = !refreshButton.isEnabled();
         optimizeButton.setEnabled(!busy && !pendingRequests.isEmpty() && truckPicker.getSelectedItem() != null
                 && activeRoute == null);
+        undoRouteButton.setEnabled(!busy && isAssigned());
         startButton.setEnabled(!busy && isAssigned());
         completeStopButton.setEnabled(!busy && isCollecting() && stopsTable.getSelectedRow() >= 0);
         completeRouteButton.setEnabled(!busy && isCollecting() && allStopsComplete());

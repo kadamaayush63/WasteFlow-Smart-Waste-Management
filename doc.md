@@ -83,8 +83,8 @@ Polygon & scan-line filling	Render buildings, truck body, bins, and map regions.
 3D transformations	Create a simple 3D campus/city view and transform objects.
 Windowing & clipping	Keep only objects/segments inside the visible map viewport.
 Bezier curves	Smooth truck animation or curved road visualization.
-Lighting & color	Represent day/night or object emphasis and improve 3D visualization.
-Texture mapping	Apply textures to roads/buildings/vehicle surfaces in an optional 3D mode.
+Lighting & color	Use status/depot glows and truck headlights in the 2D Canvas map; optional 3D lighting remains future work.
+Texture mapping	Use procedural repeating terrain and asphalt textures on the 2D Canvas map; UV-mapped 3D surfaces remain optional future work.
 9. Computer Organization & Architecture (COA) Integration
 A compact CPU/ALU demonstration module can be included so that the project also provides a visible connection to the COA syllabus rather than leaving that subject only in the report.
 •	ALU simulator for addition, subtraction, multiplication, comparison, and basic arithmetic used in route/fuel calculations.

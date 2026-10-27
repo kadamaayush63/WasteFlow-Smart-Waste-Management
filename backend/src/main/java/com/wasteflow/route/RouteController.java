@@ -29,6 +29,11 @@ public class RouteController {
         return routeService.optimize(request);
     }
 
+    @PostMapping("/undo-latest")
+    public RouteResponse undoLatestPlannedRoute() {
+        return routeService.undoLatestPlannedRoute();
+    }
+
     @GetMapping("/active")
     public ResponseEntity<RouteResponse> active() {
         return routeService.findActive()

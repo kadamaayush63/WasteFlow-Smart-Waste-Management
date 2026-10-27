@@ -56,4 +56,5 @@ public class Route {
     public Instant getCreatedAt() { return createdAt; }
     public void start() { status = RouteStatus.COLLECTING; }
     public void complete() { status = RouteStatus.COMPLETED; completedAt = Instant.now(); }
+    public void cancel() { status = RouteStatus.CANCELLED; }
 }

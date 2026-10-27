@@ -12,10 +12,16 @@ export function CoaLab({ bins, route }: CoaLabProps) {
   const [selectedBinId, setSelectedBinId] = useState<number | ''>(bins[0]?.id ?? '')
   const [binSimulation, setBinSimulation] = useState<CoaSimulation | null>(null)
   const [routeSimulation, setRouteSimulation] = useState<CoaSimulation | null>(null)
-  const [busyOperation, setBusyOperation] = useState<'bin' | 'route' | null>(null)
+  const [routeWorkloadSimulation, setRouteWorkloadSimulation] = useState<CoaSimulation | null>(null)
+  const [routeSummarySimulation, setRouteSummarySimulation] = useState<CoaSimulation | null>(null)
+  const [repetitionCount, setRepetitionCount] = useState(3)
+  const [busyOperation, setBusyOperation] = useState<'bin' | 'route' | 'workload' | 'summary' | null>(null)
   const [error, setError] = useState('')
 
   const selectedBin = bins.find((bin) => bin.id === selectedBinId)
+  const routeBinCodes = route?.stops.map((stop) => bins.find((bin) => bin.id === stop.binId)?.binCode ?? '') ?? []
+  const canSimulateRouteSummary = route !== null && routeBinCodes.length > 0
+    && routeBinCodes.length <= 10 && routeBinCodes.every(Boolean)
 
   const runBinStatus = async () => {
     if (!selectedBin) return
@@ -38,6 +44,32 @@ export function CoaLab({ bins, route }: CoaLabProps) {
       setRouteSimulation(await api.simulateRouteTotals(route.totalDistance, route.totalTime))
     } catch (simulationError) {
       setError(simulationError instanceof Error ? simulationError.message : 'Route CPU simulation failed')
+    } finally {
+      setBusyOperation(null)
+    }
+  }
+
+  const runRouteWorkload = async () => {
+    if (!route) return
+    setBusyOperation('workload')
+    setError('')
+    try {
+      setRouteWorkloadSimulation(await api.simulateRouteWorkload(route.totalDistance, repetitionCount))
+    } catch (simulationError) {
+      setError(simulationError instanceof Error ? simulationError.message : 'Route workload simulation failed')
+    } finally {
+      setBusyOperation(null)
+    }
+  }
+
+  const runRouteSummary = async () => {
+    if (!canSimulateRouteSummary) return
+    setBusyOperation('summary')
+    setError('')
+    try {
+      setRouteSummarySimulation(await api.simulateRouteSummary(routeBinCodes))
+    } catch (simulationError) {
+      setError(simulationError instanceof Error ? simulationError.message : 'Route summary string simulation failed')
     } finally {
       setBusyOperation(null)
     }
@@ -78,6 +110,31 @@ export function CoaLab({ bins, route }: CoaLabProps) {
           <button className="secondary-button coa-run" onClick={runRouteTotals} disabled={!route || busyOperation !== null}><Play size={14} /> {busyOperation === 'route' ? 'Executing...' : 'Run CPU simulation'}</button>
           {routeSimulation && <SimulationOutput simulation={routeSimulation} />}
         </article>
+
+        <article className="panel coa-operation">
+          <div className="panel-header"><div><p className="eyebrow">CO3 · ARITHMETIC ALGORITHM</p><h2>Estimate repeat-route distance</h2></div></div>
+          {route
+            ? <p className="coa-route-input">Route #{route.id}: {route.totalDistance.toFixed(3)} km per run</p>
+            : <p className="panel-subtitle">Build or load a route first to estimate mileage across repeated collection runs.</p>}
+          <label className="coa-field">Number of runs
+            <input type="number" min="1" max="100" value={repetitionCount} onChange={(event) => setRepetitionCount(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} />
+          </label>
+          <p className="panel-subtitle">Uses a 64-bit ADD/DEC/branch loop (successive addition) to calculate total route distance for repeated runs.</p>
+          <button className="secondary-button coa-run" onClick={runRouteWorkload} disabled={!route || busyOperation !== null}><Play size={14} /> {busyOperation === 'workload' ? 'Executing...' : 'Run CO3 arithmetic'}</button>
+          {routeWorkloadSimulation && <SimulationOutput simulation={routeWorkloadSimulation} />}
+        </article>
+
+        <article className="panel coa-operation">
+          <div className="panel-header"><div><p className="eyebrow">CO3 · STRING PROCESSING</p><h2>Build route summary</h2></div></div>
+          {canSimulateRouteSummary
+            ? <p className="coa-route-input">{routeBinCodes.join(' → ')}</p>
+            : route && routeBinCodes.length > 10
+              ? <p className="panel-subtitle">The CO3 string-processing demo supports up to 10 route stops.</p>
+            : <p className="panel-subtitle">Build or load a route with available bin details to assemble its summary string.</p>}
+          <p className="panel-subtitle">Uses 64-bit RSI/RDI pointers with LODSB/STOSB to copy bin codes from memory and insert route separators.</p>
+          <button className="secondary-button coa-run" onClick={runRouteSummary} disabled={!canSimulateRouteSummary || busyOperation !== null}><Play size={14} /> {busyOperation === 'summary' ? 'Executing...' : 'Run CO3 string processing'}</button>
+          {routeSummarySimulation && <SimulationOutput simulation={routeSummarySimulation} />}
+        </article>
       </div>
     </section>
   )
@@ -91,7 +148,7 @@ function SimulationOutput({ simulation }: { simulation: CoaSimulation }) {
       <div className="coa-flags"><b>Flags</b> ZF {Number(simulation.flags.zero)} · SF {Number(simulation.flags.sign)} · CF {Number(simulation.flags.carry)} · OF {Number(simulation.flags.overflow)}</div>
       <details className="coa-trace"><summary>Assembly listing and execution trace ({simulation.trace.length} steps)</summary>
         <pre>{simulation.assemblyProgram.join('\n')}</pre>
-        <ol>{simulation.trace.map((step) => <li key={step.step}><code>{step.instruction}</code><small>RAX {step.registers.RAX} · RBX {step.registers.RBX} · RCX {step.registers.RCX} · RDX {step.registers.RDX} · ZF {Number(step.flags.zero)}</small></li>)}</ol>
+        <ol>{simulation.trace.map((step) => <li key={step.step}><code>{step.instruction}</code><small>RAX {step.registers.RAX} · RBX {step.registers.RBX} · RCX {step.registers.RCX} · RDX {step.registers.RDX}{step.registers.RSI !== undefined && ` · RSI ${step.registers.RSI} · RDI ${step.registers.RDI} · AL ${step.registers.AL}`} · ZF {Number(step.flags.zero)}</small></li>)}</ol>
       </details>
     </div>
   )

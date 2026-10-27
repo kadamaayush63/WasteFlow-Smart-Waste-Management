@@ -715,7 +715,7 @@ Do not block the MVP on these features:
 - Login and role-based security.
 - WebSockets or real-time push updates.
 - Real GPS or mapping APIs.
-- 3D graphics, lighting, and texture mapping.
+- 3D scene rendering and UV texture mapping (the 2D Canvas map uses procedural terrain/road textures and status/headlight lighting).
 - Advanced Canvas algorithms such as DDA and Bresenham.
 - Multi-truck optimization.
 - IoT sensors.

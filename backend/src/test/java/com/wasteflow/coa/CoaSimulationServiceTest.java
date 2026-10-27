@@ -2,7 +2,9 @@ package com.wasteflow.coa;
 
 import com.wasteflow.coa.CoaSimulationRequest.BinStatus;
 import com.wasteflow.coa.CoaSimulationRequest.Leg;
+import com.wasteflow.coa.CoaSimulationRequest.RouteSummary;
 import com.wasteflow.coa.CoaSimulationRequest.RouteTotals;
+import com.wasteflow.coa.CoaSimulationRequest.RouteWorkload;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -44,5 +46,42 @@ class CoaSimulationServiceTest {
         assertEquals(10000, result.registers().get("RBX"));
         assertEquals(4, result.trace().stream().filter(step -> step.instruction().startsWith("ADD")).count());
         assertFalse(result.flags().overflow());
+    }
+
+    @Test
+    void estimatesRepeatedRouteDistanceUsingSuccessiveAddition() {
+        CoaSimulationResponse result = service.simulateRouteWorkload(new RouteWorkload(3.25, 4));
+
+        assertEquals("4 runs x 3.250 km = 13.000 km total", result.result());
+        assertEquals(13000, result.registers().get("RAX"));
+        assertEquals(4, result.trace().stream().filter(step -> step.instruction().equals("ADD RAX, RBX")).count());
+        assertEquals("JNZ REPEAT_ROUTE", result.trace().get(result.trace().size() - 2).instruction());
+        assertEquals("HLT", result.trace().getLast().instruction());
+    }
+
+    @Test
+    void buildsRouteSummaryUsingSimulatedX64StringInstructions() {
+        CoaSimulationResponse result = service.simulateRouteSummary(
+                new RouteSummary(List.of("BIN-01", "BIN-02", "BIN-03")));
+
+        assertEquals("BIN-01 -> BIN-02 -> BIN-03", result.result());
+        assertTrue(result.assemblyProgram().contains("LODSB"));
+        assertTrue(result.assemblyProgram().contains("STOSB"));
+        assertTrue(result.trace().stream().anyMatch(step -> step.instruction().equals("JZ END_BIN_CODE")));
+        assertTrue(result.trace().stream().anyMatch(step -> step.instruction().equals("LODSB")
+                && step.registers().get("RAX") == (long) 'B'));
+        assertEquals("HLT", result.trace().getLast().instruction());
+    }
+
+    @Test
+    void rejectsNonAsciiRouteBinCodesForByteStringSimulation() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.simulateRouteSummary(new RouteSummary(List.of("BIN-É"))));
+    }
+
+    @Test
+    void rejectsRouteWorkloadsOutsideSupportedRepetitionRange() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.simulateRouteWorkload(new RouteWorkload(3.25, 101)));
     }
 }

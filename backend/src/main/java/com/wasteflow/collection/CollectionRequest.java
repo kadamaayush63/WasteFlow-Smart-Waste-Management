@@ -52,6 +52,7 @@ public class CollectionRequest {
     public RequestStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public void assign() { status = RequestStatus.ASSIGNED; }
+    public void unassign() { status = RequestStatus.PENDING; }
     public void complete() { status = RequestStatus.COMPLETED; resolvedAt = Instant.now(); }
     public void cancel() { status = RequestStatus.CANCELLED; resolvedAt = Instant.now(); }
 

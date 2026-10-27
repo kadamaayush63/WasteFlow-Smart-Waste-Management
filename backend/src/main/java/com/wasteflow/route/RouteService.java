@@ -98,8 +98,11 @@ public class RouteService {
         truck.assign(load);
         Route route = routeRepository.save(new Route(truck, algorithm, totalDistance, totalTime));
         SinglyLinkedList<RouteStop> stops = new SinglyLinkedList<>();
+        ArrayQueue<CollectionRequest> dispatchQueue = new ArrayQueue<>();
+        orderedRequests.forEach(dispatchQueue::enqueue);
         int sequence = 1;
-        for (CollectionRequest request : orderedRequests) {
+        while (!dispatchQueue.isEmpty()) {
+            CollectionRequest request = dispatchQueue.dequeue();
             requests.update(item -> item.getId().equals(request.getId()), item -> {
                 item.assign();
                 return item;
@@ -111,6 +114,27 @@ public class RouteService {
         requestRepository.saveAll(selectedRequests);
         stopRepository.saveAll(orderedStops);
         return RouteResponse.from(route, orderedStops);
+    }
+
+    @Transactional
+    public RouteResponse undoLatestPlannedRoute() {
+        ArrayStack<Route> undoStack = new ArrayStack<>();
+        routeRepository.findByStatusOrderByCreatedAtAscIdAsc(RouteStatus.ASSIGNED)
+                .forEach(undoStack::push);
+        if (undoStack.isEmpty()) {
+            throw new IllegalStateException("There is no unstarted route available to undo");
+        }
+
+        Route route = undoStack.pop();
+        List<RouteStop> stops = stopRepository.findByRouteOrderBySequenceNumber(route);
+        for (RouteStop stop : stops) {
+            requestRepository.findFirstByBinAndStatusInOrderByCreatedAtDesc(
+                            stop.getBin(), List.of(RequestStatus.ASSIGNED))
+                    .ifPresent(CollectionRequest::unassign);
+        }
+        route.getTruck().makeAvailable();
+        route.cancel();
+        return RouteResponse.from(route, stops);
     }
 
     @Transactional(readOnly = true)

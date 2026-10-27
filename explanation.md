@@ -459,6 +459,8 @@ The truck animation uses presentation-side graphics concepts from `doc.md`:
 - Cohen–Sutherland line clipping to keep grid, road, and route segments within the Canvas viewport.
 - Redrawing through `ResizeObserver` when the map viewport changes size.
 - Color coding for depot, urgent bins, roads, and planned routes.
+- Repeating procedural terrain and asphalt textures to distinguish the map ground and roads.
+- Radial status lighting around bins and the depot, plus a directional headlight beam on the animated truck.
 
 The Canvas renderer uses custom computer-graphics algorithms for its map primitives:
 
@@ -466,7 +468,7 @@ The Canvas renderer uses custom computer-graphics algorithms for its map primiti
 - The midpoint circle algorithm draws filled location/bin markers and bin marker outlines.
 - Cohen–Sutherland clips line segments before rasterization.
 
-The project uses browser Canvas rather than native OpenGL/GLFW. It does not currently include 3D objects, textures, Bezier curves, or a Java Swing GUI.
+The map uses procedural 2D Canvas surface textures and gradient lighting; it does not use native OpenGL/GLFW or 3D UV texture mapping. A separate Java Swing desktop operations client is also available for bins, requests, trucks, and route lifecycle controls. The project does not currently include 3D objects or Bezier curves.
 
 ### COA Lab: processor and instruction simulation
 
@@ -474,8 +476,10 @@ The dashboard's **COA lab** view connects processor concepts to current WasteFlo
 
 - `POST /api/coa/bin-status`: simulates fill-percentage arithmetic and threshold branches using the selected bin's fill and capacity.
 - `POST /api/coa/route-totals`: simulates 64-bit register accumulation for route distance and travel time using the loaded route totals.
+- `POST /api/coa/route-workload`: repeatedly adds the loaded route distance to estimate mileage across a selected number of collection runs.
+- `POST /api/coa/route-summary`: processes the loaded route's ordered bin codes with simulated 64-bit string instructions to create its summary.
 
-The teaching CPU models 64-bit `RAX`, `RBX`, `RCX`, and `RDX` registers, ALU arithmetic/comparison, zero/sign/carry/overflow flags, conditional branches, and a fetch/decode/execute trace. Its supported instruction subset includes `MOV`, `ADD`, `IMUL`, `CQO`, `IDIV`, `CMP`, `JGE`, `JL`, `JMP`, and `HLT`. Measurements are represented in milli-units so the simulated arithmetic uses integer registers.
+The teaching CPU models 64-bit `RAX`, `RBX`, `RCX`, `RDX`, `RSI`, and `RDI` registers, the `AL` byte register, ALU arithmetic/comparison, zero/sign/carry/overflow flags, conditional branches, byte-oriented `LODSB`/`STOSB` string instructions, and a fetch/decode/execute trace. Its supported instruction subset includes `MOV`, `ADD`, `IMUL`, `CQO`, `IDIV`, `CMP`, `DEC`, `TEST`, `JGE`, `JL`, `JE`/`JZ`, `JNZ`, `JMP`, `LODSB`, `STOSB`, and `HLT`. Measurements are represented in milli-units so the simulated arithmetic uses integer registers.
 
 This is a Java software simulator interpreting an x86-64-style instruction subset. It does not assemble or execute native x86-64 machine code; native assembly integration requires a compatible 64-bit assembler and toolchain.
 
@@ -577,7 +581,7 @@ npm run build
 | Error handling | Implemented with a global REST exception handler |
 | Task 1 arrays and search | Urgency-ordered bin results are materialized into an array; linear search supports bin-code and location queries |
 | Task 2 linked list | Project-owned singly linked list supports insert, find, update, delete, size, and traversal; used in priority-ordered route planning |
-| Task 3 stack/queue | No separate PL stack/queue feature was added; Dijkstra's priority queue remains essential to shortest-path calculation |
+| Task 3 stack/queue | Array-backed FIFO queue processes optimized route stops in order; array-backed LIFO stack undoes the latest unstarted route, returning its requests to pending and freeing its truck |
 | Task 4 sorting/hashing | No separate sorting or hash-table feature was added |
 | COA processor model | Implemented as an educational simulator with 64-bit general-purpose registers, ALU operations, flags, conditional branches, and an instruction trace |
 | COA application calculations | Bin fill classification and route distance/time accumulation are traced through simulated x86-64 instruction programs |
@@ -585,7 +589,7 @@ npm run build
 | Report generation | Not currently implemented |
 | Algorithm benchmarking | Not currently implemented |
 | Authentication and roles | Not currently implemented |
-| Java Swing GUI | Not used; React web UI is used instead |
+| Java Swing GUI | Implemented as a standalone desktop client alongside the React web UI |
 | OpenGL or 3D graphics | Not currently implemented |
 | IoT/GPS integration | ThingSpeak readings update bins 1, 2, and 3; GPS integration is not currently implemented |
 

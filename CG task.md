@@ -1,8 +1,8 @@
-# Computer Graphics Tasks 1 and 2 Implementation
+# Computer Graphics Tasks 1, 2, and 3 Implementation
 
 ## Project context
 
-WasteFlow renders its waste-collection map in the browser using the HTML Canvas 2D API. The Canvas displays roads, locations, bins, planned routes, and an animated truck. This document maps the Computer Graphics Task 1 and Task 2 concepts to the implementation.
+WasteFlow renders its waste-collection map in the browser using the HTML Canvas 2D API. The Canvas displays procedurally textured roads and terrain, status lighting, locations, bins, planned routes, and an animated truck. This document maps the Computer Graphics Task 1, Task 2, and Task 3 concepts to the implementation.
 
 ## Task 1: Graphics setup and drawing algorithms
 
@@ -24,15 +24,29 @@ WasteFlow renders its waste-collection map in the browser using the HTML Canvas 
 | Cohen–Sutherland line clipping | Implemented | Line segments are clipped to the Canvas viewport before Bresenham rasterization. This is used for grid, road, and route lines. | [graphicsAlgorithms.ts](frontend/src/graphicsAlgorithms.ts#L26), [graphicsAlgorithms.ts](frontend/src/graphicsAlgorithms.ts#L96), [RouteCanvas.tsx](frontend/src/RouteCanvas.tsx#L99) |
 | Redraw on viewport resize | Implemented | A `ResizeObserver` redraws the map when the Canvas size changes. | [RouteCanvas.tsx](frontend/src/RouteCanvas.tsx#L180) |
 
+## Task 3 (CO6): Texture mapping, lighting, and application integration
+
+### Concepts and locations
+
+| Task 3 concept | How it is used | Source location |
+|---|---|---|
+| Terrain surface texture | A repeating, procedurally generated Canvas texture gives the collection-area map a subtle ground surface. | [RouteCanvas.tsx](frontend/src/RouteCanvas.tsx) |
+| Road surface texture | Roads are clipped to the map viewport, rendered with shoulders and a repeating asphalt texture, and marked with dashed lane lines. | [RouteCanvas.tsx](frontend/src/RouteCanvas.tsx), [graphicsAlgorithms.ts](frontend/src/graphicsAlgorithms.ts) |
+| Bin and depot lighting | Radial light glows emphasize bin status and the depot; marker highlights add a simple shaded appearance. | [RouteCanvas.tsx](frontend/src/RouteCanvas.tsx) |
+| Truck lighting effect | A soft glow and directional headlight beam follow the animated truck's heading along the route. | [RouteCanvas.tsx](frontend/src/RouteCanvas.tsx) |
+| Integration in the application | Textured surfaces and lighting render as part of the existing route Canvas, alongside bins, roads, route animation, and controls; a map badge identifies the effects. | [RouteCanvas.tsx](frontend/src/RouteCanvas.tsx), [animation.css](frontend/src/animation.css), [App.tsx](frontend/src/App.tsx) |
+| Native 3D/UV texture mapping | Not implemented; the current effects are procedural 2D Canvas textures and gradients, not a 3D OpenGL scene. | [RouteCanvas.tsx](frontend/src/RouteCanvas.tsx) |
+
 ## Rendering flow
 
 1. Obtain the Canvas 2D context and size the drawing buffer for the device pixel ratio.
 2. Map model coordinates into Canvas viewport coordinates.
-3. Draw grid, roads, and planned route using Cohen–Sutherland clipping followed by Bresenham rasterization.
-4. Draw location and bin markers with the midpoint circle algorithm.
-5. Translate and rotate the truck graphic, then redraw as route animation progresses.
-6. Redraw the map when its viewport is resized.
+3. Fill the ground and road surfaces with repeating procedural textures; clip road strokes to the viewport.
+4. Draw grid and planned-route lines using Bresenham rasterization, then apply status glows, depot lighting, and truck headlights.
+5. Draw location and bin markers with the midpoint circle algorithm.
+6. Translate and rotate the truck graphic, then redraw as route animation progresses.
+7. Redraw the map when its viewport is resized.
 
 ## Summary
 
-Task 1's simple graphics program, Bresenham line drawing, and midpoint circle drawing are implemented in the Canvas renderer. Graphics setup is browser Canvas 2D rather than OpenGL/GLFW. Task 2's translation, rotation, scaling, and Cohen–Sutherland line clipping are implemented. Native OpenGL/GLFW is not part of this React application.
+Task 1's simple graphics program, Bresenham line drawing, and midpoint circle drawing are implemented in the Canvas renderer. Graphics setup is browser Canvas 2D rather than OpenGL/GLFW. Task 2's translation, rotation, scaling, and Cohen–Sutherland line clipping are implemented. Task 3's procedural 2D terrain/road textures, status/depot lighting, and animated truck headlight are integrated into the map. Native OpenGL/GLFW and 3D texture mapping are not part of this React application.

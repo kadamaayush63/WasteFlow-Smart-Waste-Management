@@ -7,4 +7,5 @@ import java.util.Optional;
 
 public interface RouteRepository extends JpaRepository<Route, Long> {
 	Optional<Route> findFirstByStatusInOrderByCreatedAtDesc(List<RouteStatus> statuses);
+	List<Route> findByStatusOrderByCreatedAtAscIdAsc(RouteStatus status);
 }

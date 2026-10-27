@@ -1,6 +1,6 @@
 import { Pause, Play, RotateCcw } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { drawClippedRasterLine, drawMidpointCircleOutline, drawMidpointFilledCircle } from './graphicsAlgorithms'
+import { clipLineToViewport, drawClippedRasterLine, drawMidpointCircleOutline, drawMidpointFilledCircle } from './graphicsAlgorithms'
 import type { Bin, Location, Road, Route } from './types'
 
 interface RouteCanvasProps {
@@ -20,11 +20,60 @@ const palette = {
   blue: '#5c91a8',
 }
 
+function createTextureTile(surface: 'terrain' | 'road') {
+  const tile = document.createElement('canvas')
+  tile.width = 64
+  tile.height = 64
+  const context = tile.getContext('2d')
+  if (!context) return tile
+
+  context.fillStyle = surface === 'terrain' ? '#f2f1e6' : '#a9aea5'
+  context.fillRect(0, 0, tile.width, tile.height)
+
+  let seed = surface === 'terrain' ? 7919 : 104729
+  const random = () => {
+    seed = (seed * 16807) % 2147483647
+    return (seed - 1) / 2147483646
+  }
+  for (let index = 0; index < 56; index += 1) {
+    const x = random() * tile.width
+    const y = random() * tile.height
+    const radius = surface === 'terrain' ? 1 + random() * 3 : 0.6 + random() * 1.2
+    context.fillStyle = surface === 'terrain'
+      ? index % 2 === 0 ? 'rgba(125, 151, 94, 0.13)' : 'rgba(189, 166, 119, 0.12)'
+      : index % 2 === 0 ? 'rgba(236, 239, 230, 0.32)' : 'rgba(69, 78, 70, 0.2)'
+    context.beginPath()
+    context.ellipse(x, y, radius * 1.5, radius, random() * Math.PI, 0, Math.PI * 2)
+    context.fill()
+  }
+  return tile
+}
+
+function drawLightGlow(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+) {
+  const glow = context.createRadialGradient(x, y, 0, x, y, radius)
+  glow.addColorStop(0, color)
+  glow.addColorStop(1, 'rgba(255, 255, 255, 0)')
+  context.fillStyle = glow
+  context.beginPath()
+  context.arc(x, y, radius, 0, Math.PI * 2)
+  context.fill()
+}
+
 export function RouteCanvas({ locations, roads, bins, route, truckLocationId }: RouteCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationFrame = useRef<number | null>(null)
   const startedAt = useRef(0)
   const pausedAt = useRef(0)
+  const textureTiles = useMemo(() => ({
+    terrain: createTextureTile('terrain'),
+    road: createTextureTile('road'),
+  }), [])
   const [progress, setProgress] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
 
@@ -78,8 +127,9 @@ export function RouteCanvas({ locations, roads, bins, route, truckLocationId }: 
       canvas.width = Math.round(viewWidth * pixelRatio)
       canvas.height = Math.round(viewHeight * pixelRatio)
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
-      context.fillStyle = palette.paper
+      context.fillStyle = context.createPattern(textureTiles.terrain, 'repeat') ?? palette.paper
       context.fillRect(0, 0, viewWidth, viewHeight)
+      const roadTexture = context.createPattern(textureTiles.road, 'repeat')
 
       const minX = Math.min(...locations.map((location) => location.xCoordinate), 0)
       const maxX = Math.max(...locations.map((location) => location.xCoordinate), 100)
@@ -103,15 +153,35 @@ export function RouteCanvas({ locations, roads, bins, route, truckLocationId }: 
       }
 
       roads.forEach((road) => {
+        const start = point(road.sourceLocationId)
+        const end = point(road.destinationLocationId)
         drawClippedRasterLine(
           context,
-          point(road.sourceLocationId),
-          point(road.destinationLocationId),
+          start,
+          end,
           viewWidth,
           viewHeight,
-          '#bbbeb2',
-          3,
+          '#858b82',
+          14,
         )
+        const clipped = clipLineToViewport(start, end, viewWidth, viewHeight)
+        if (!clipped) return
+        context.save()
+        context.lineCap = 'round'
+        context.beginPath()
+        context.moveTo(clipped.start.x, clipped.start.y)
+        context.lineTo(clipped.end.x, clipped.end.y)
+        context.strokeStyle = '#d5d0bf'
+        context.lineWidth = 14
+        context.stroke()
+        context.strokeStyle = roadTexture ?? '#a9aea5'
+        context.lineWidth = 10
+        context.stroke()
+        context.strokeStyle = 'rgba(247, 245, 237, 0.72)'
+        context.lineWidth = 1
+        context.setLineDash([5, 8])
+        context.stroke()
+        context.restore()
       })
 
       const stopLocations = routeLocations.map((location) => location.id)
@@ -143,6 +213,18 @@ export function RouteCanvas({ locations, roads, bins, route, truckLocationId }: 
         context.save()
         context.translate(truckX, truckY)
         context.rotate(heading)
+        drawLightGlow(context, 0, 0, 27, 'rgba(242, 118, 95, 0.24)')
+        const headlight = context.createLinearGradient(11, 0, 84, 0)
+        headlight.addColorStop(0, 'rgba(255, 238, 157, 0.44)')
+        headlight.addColorStop(1, 'rgba(255, 238, 157, 0)')
+        context.fillStyle = headlight
+        context.beginPath()
+        context.moveTo(11, -5)
+        context.lineTo(84, -25)
+        context.lineTo(84, 25)
+        context.lineTo(11, 5)
+        context.closePath()
+        context.fill()
         context.fillStyle = palette.coral
         context.strokeStyle = palette.paper
         context.lineWidth = 3
@@ -160,7 +242,14 @@ export function RouteCanvas({ locations, roads, bins, route, truckLocationId }: 
       locations.forEach((location) => {
         const current = point(location.id)
         const isDepot = location.name.toLowerCase().includes('depot')
+        if (isDepot) {
+          drawLightGlow(context, current.x, current.y, 31, 'rgba(200, 244, 91, 0.34)')
+        }
         drawMidpointFilledCircle(context, current, isDepot ? 8 : 5, isDepot ? palette.lime : palette.ink)
+        context.fillStyle = 'rgba(255, 255, 255, 0.72)'
+        context.beginPath()
+        context.arc(current.x - 2, current.y - 2, isDepot ? 2.5 : 1.5, 0, Math.PI * 2)
+        context.fill()
         context.fillStyle = palette.ink
         context.font = '11px Space Mono, monospace'
         context.fillText(location.name, current.x + 9, current.y - 9)
@@ -169,8 +258,18 @@ export function RouteCanvas({ locations, roads, bins, route, truckLocationId }: 
       bins.forEach((bin) => {
         const current = point(bin.locationId)
         const color = bin.status === 'CRITICAL' ? palette.coral : bin.status === 'HIGH' ? '#f3bd57' : palette.blue
+        const glowColor = bin.status === 'CRITICAL'
+          ? 'rgba(242, 118, 95, 0.34)'
+          : bin.status === 'HIGH'
+            ? 'rgba(243, 189, 87, 0.32)'
+            : 'rgba(92, 145, 168, 0.24)'
+        drawLightGlow(context, current.x, current.y, 24, glowColor)
         drawMidpointFilledCircle(context, current, 9, color)
         drawMidpointCircleOutline(context, current, 10, palette.paper)
+        context.fillStyle = 'rgba(255, 255, 255, 0.76)'
+        context.beginPath()
+        context.arc(current.x - 3, current.y - 3, 2.5, 0, Math.PI * 2)
+        context.fill()
       })
     }
 
@@ -180,8 +279,8 @@ export function RouteCanvas({ locations, roads, bins, route, truckLocationId }: 
     const resizeObserver = new ResizeObserver(render)
     resizeObserver.observe(canvas)
     return () => resizeObserver.disconnect()
-  }, [bins, locations, roads, progress, route, routeLocations])
+  }, [bins, locations, roads, progress, route, routeLocations, textureTiles])
 
   const currentStop = stopCount === 0 ? 0 : Math.min(stopCount, Math.floor(progress * stopCount) + 1)
-  return <div className="route-canvas-stage"><canvas ref={canvasRef} className="route-canvas" aria-label="Waste collection road graph and animated truck route" /><div className="animation-controls"><button className="animation-button" onClick={togglePlayback} title={isPlaying ? 'Pause truck animation' : 'Play truck animation'}>{isPlaying ? <Pause size={14} /> : <Play size={14} />}</button><button className="animation-button" onClick={replay} title="Replay truck animation"><RotateCcw size={14} /></button><span><b>{route ? (progress >= 1 ? 'Route complete' : `Truck moving · stop ${currentStop} of ${stopCount}`) : 'No route selected'}</b><small>{route ? `${Math.round(progress * 100)}% of optimal sequence` : 'Build a route to animate'}</small></span><div className="animation-progress"><span style={{ width: `${progress * 100}%` }} /></div></div></div>
+  return <div className="route-canvas-stage"><canvas ref={canvasRef} className="route-canvas" aria-label="Textured waste collection map with status lighting and animated truck headlights" /><span className="graphics-effects-label">TEXTURED MAP · STATUS LIGHTING</span><div className="animation-controls"><button className="animation-button" onClick={togglePlayback} title={isPlaying ? 'Pause truck animation' : 'Play truck animation'}>{isPlaying ? <Pause size={14} /> : <Play size={14} />}</button><button className="animation-button" onClick={replay} title="Replay truck animation"><RotateCcw size={14} /></button><span><b>{route ? (progress >= 1 ? 'Route complete' : `Truck moving · stop ${currentStop} of ${stopCount}`) : 'No route selected'}</b><small>{route ? `${Math.round(progress * 100)}% of optimal sequence` : 'Build a route to animate'}</small></span><div className="animation-progress"><span style={{ width: `${progress * 100}%` }} /></div></div></div>
 }

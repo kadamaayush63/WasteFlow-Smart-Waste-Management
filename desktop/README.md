@@ -22,7 +22,8 @@ java -jar desktop\target\wasteflow-desktop.jar https://localhost:8443
 1. Review bin fill levels and pending collection requests.
 2. Select pending requests, an available truck, and a route ordering algorithm.
 3. Plan a route; the backend checks truck capacity and request eligibility.
-4. Start the route, select and complete each stop, then finish the route.
-5. Advance the simulation to update bin fill and generate new collection requests.
+4. Undo the latest route plan before dispatch if needed; its requests return to the pending list and its truck becomes available.
+5. Start the route, select and complete each stop, then finish the route.
+6. Advance the simulation to update bin fill and generate new collection requests.
 
 Network calls run off the Swing event-dispatch thread so the interface remains responsive. API validation or connectivity failures are shown to the operator.
